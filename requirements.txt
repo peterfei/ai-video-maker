@@ -1,0 +1,35 @@
+# 核心视频处理
+moviepy>=1.0.3
+imageio>=2.31.1
+imageio-ffmpeg>=0.4.9
+
+# 图像处理
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# TTS 语音合成
+edge-tts>=6.1.0
+pyttsx3>=2.90
+
+# 字幕处理
+pysrt>=1.1.2
+
+# 配置管理
+PyYAML>=6.0
+python-dotenv>=1.0.0
+
+# 任务队列 (可选)
+# celery==5.3.1
+# redis==4.6.0
+
+# AI 集成 (可选)
+# openai==0.27.8
+# requests==2.31.0
+
+# 实用工具
+tqdm>=4.65.0
+colorlog>=6.7.0
+
+# 开发工具
+pytest>=7.4.0
+black>=23.7.0

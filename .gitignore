@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 项目特定
+output/
+!output/.gitkeep
+data/materials/*
+!data/materials/.gitkeep
+data/scripts/*
+!data/scripts/.gitkeep
+assets/music/*
+!assets/music/.gitkeep
+
+# 临时文件
+*.tmp
+*.log
+*.mp3
+*.mp4
+*.avi
+*.mov
+
+# 配置文件（如果包含敏感信息）
+# config/local_config.yaml
+
+# 任务队列数据
+task_queue.json

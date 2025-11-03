@@ -1,0 +1,113 @@
+# 视频生成工厂 - 默认配置文件
+
+# 项目路径配置
+paths:
+  assets: "assets"
+  output: "output"
+  data: "data"
+  templates: "assets/templates"
+  music: "assets/music"
+  fonts: "assets/fonts"
+
+# 视频基础设置
+video:
+  resolution: [1920, 1080]  # 分辨率
+  fps: 30                    # 帧率
+  codec: "libx264"           # 编码器
+  bitrate: "5000k"           # 比特率
+  duration: "auto"           # 视频时长 (auto为根据音频长度自动计算)
+  background_color: [0, 0, 0]  # 背景颜色 RGB
+
+# TTS 语音合成设置
+tts:
+  engine: "edge-tts"         # 引擎: edge-tts, pyttsx3, azure
+  voice: "zh-CN-XiaoxiaoNeural"  # 语音
+  rate: 1.0                  # 语速 (0.5-2.0)
+  volume: 1.0                # 音量 (0.0-1.0)
+  pitch: 0                   # 音调 (-20 to +20)
+
+  # Edge TTS 可用语音列表
+  available_voices:
+    - "zh-CN-XiaoxiaoNeural"  # 女声-晓晓
+    - "zh-CN-YunxiNeural"     # 男声-云希
+    - "zh-CN-YunyangNeural"   # 男声-云扬
+    - "zh-CN-XiaoyiNeural"    # 女声-晓伊
+
+# 字幕设置
+subtitle:
+  enabled: true
+  font_name: "STHeiti Medium"  # 字体名称 (macOS中文)
+  font_size: 48
+  font_color: "white"
+  stroke_color: "black"
+  stroke_width: 2
+  position: "bottom"         # 位置: top, center, bottom
+  margin_bottom: 100         # 底部边距(像素)
+  duration_per_char: 0.3     # 每个字符显示时长(秒)
+  max_chars_per_line: 25     # 每行最大字符数
+  align: "center"            # 对齐方式: left, center, right
+
+# 背景音乐设置
+music:
+  enabled: true
+  volume: 0.2                # 音乐音量 (0.0-1.0)
+  fade_in: 2.0               # 淡入时长(秒)
+  fade_out: 3.0              # 淡出时长(秒)
+  loop: true                 # 是否循环
+  default_track: "assets/music/default.mp3"
+
+# 内容源设置
+content_sources:
+  # 文本脚本
+  text:
+    encoding: "utf-8"
+    split_by_paragraph: true
+
+  # 素材库
+  materials:
+    image_formats: [".jpg", ".jpeg", ".png", ".webp"]
+    video_formats: [".mp4", ".mov", ".avi"]
+    auto_resize: true
+
+  # AI生成 (可选)
+  ai:
+    enabled: false
+    provider: "openai"       # openai, azure, local
+    model: "gpt-4"
+    api_key: "${OPENAI_API_KEY}"
+
+# 视频模板设置
+templates:
+  default: "simple"          # 默认模板
+
+  simple:
+    type: "image_slideshow"
+    transition: "fade"       # 转场效果: fade, slide, zoom
+    transition_duration: 0.5
+    image_duration: 5.0      # 每张图片显示时长
+
+  tutorial:
+    type: "screen_recording"
+    watermark: true
+    watermark_position: "bottom-right"
+
+# 批处理设置
+batch:
+  max_workers: 2             # 最大并行任务数
+  retry_on_error: true
+  retry_times: 3
+  save_logs: true
+  log_level: "INFO"
+
+# 导出设置
+export:
+  format: "mp4"
+  quality: "high"            # low, medium, high, ultra
+  filename_pattern: "{title}_{timestamp}"
+  overwrite: false
+
+# 调试设置
+debug:
+  enabled: false
+  save_intermediate: false   # 保存中间文件
+  verbose_logging: false
