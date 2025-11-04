@@ -1,0 +1,130 @@
+# GPU 性能基准测试配置
+# 启用 VideoToolbox 硬件编码和复杂场景设置
+
+# 继承默认配置的基础上，重点配置性能相关参数
+
+# 性能优化配置
+performance:
+  # 多线程设置
+  threading:
+    enabled: true
+    max_workers: auto
+    max_concurrent_tasks: 4
+    task_timeout: 3600
+    worker_memory_limit: 2048
+    retry_on_error: true
+    retry_times: 3
+    save_logs: true
+
+  # GPU加速设置
+  gpu:
+    enabled: true                  # 启用GPU加速
+    device: auto
+    backend_priority:
+      - mps                        # Apple Silicon优先
+      - cuda
+      - cpu
+    memory_limit: 0.8
+    min_gpu_memory: 2147483648
+    max_batch_size: 16
+
+    # GPU特效设置
+    effects:
+      enabled: true
+      precision: fp16
+      cache_frames: true
+
+  # 性能监控
+  monitoring:
+    enable_metrics: true
+    log_performance: true
+    profile_tasks: false
+
+# 视频设置 - 启用硬件编码
+video:
+  resolution: [1920, 1080]
+  fps: 30
+  duration: auto
+  background_color: [0, 0, 0]
+
+  # 使用 VideoToolbox 硬件编码
+  codec: h264_videotoolbox         # Apple 硬件编码器
+  bitrate: 5000k
+  preset: medium                   # VideoToolbox 预设
+
+# 模板设置 - 复杂转场效果
+templates:
+  default: complex_slideshow
+  complex_slideshow:
+    type: image_slideshow
+    image_duration: 3.0            # 每张图片3秒
+    transition: crossfade          # 交叉淡化转场
+    transition_duration: 0.8       # 0.8秒转场时间
+    zoom_effect: true              # 启用缩放效果
+    pan_effect: true               # 启用平移效果
+
+# TTS设置
+tts:
+  engine: edge-tts
+  voice: zh-CN-XiaoxiaoNeural
+  rate: 1.0
+  pitch: 0
+  volume: 1.0
+
+# 字幕设置
+subtitle:
+  enabled: true
+  font_size: 56                    # 更大的字体
+  font_color: white
+  font_name: STHeiti Medium
+  position: bottom
+  margin_bottom: 100
+  stroke_color: black
+  stroke_width: 3
+  max_chars_per_line: 25
+  adaptive_font_size: true
+
+# 音乐设置
+music:
+  enabled: false                    # 暂时禁用音乐
+
+# 自动素材管理
+auto_materials:
+  enabled: false                    # 使用本地素材
+
+# 内容源设置
+content_sources:
+  materials:
+    auto_resize: true
+    image_formats: [.jpg, .jpeg, .png, .webp]
+    video_formats: [.mp4, .mov, .avi]
+
+# 导出设置
+export:
+  format: mp4
+  quality: high
+  filename_pattern: '{title}_{timestamp}'
+  overwrite: false
+
+# 路径设置
+paths:
+  output: output
+  assets: assets
+  data: data
+  templates: assets/templates
+  fonts: assets/fonts
+  music: assets/music
+
+# 批处理设置
+batch:
+  max_workers: 2
+  retry_on_error: true
+  retry_times: 3
+  save_logs: true
+  log_level: INFO
+
+# 调试设置
+debug:
+  enabled: false
+  save_intermediate: false
+  verbose_logging: false

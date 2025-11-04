@@ -1,6 +1,6 @@
 # 快速入门指南
 
-5分钟生成你的第一个视频！
+5分钟生成你的第一个视频！支持多线程和GPU加速！
 
 ## 步骤 1: 环境准备
 
@@ -63,11 +63,28 @@ python src/main.py \
 ## 步骤 4: 批量生成
 
 1. 在 `data/scripts/` 目录创建多个 `.txt` 文件
-2. 运行批量处理：
+2. 运行批量处理（自动启用多线程和GPU加速）：
 
 ```bash
 python src/main.py --batch data/scripts
 ```
+
+✨ **性能特性**:
+- 自动检测系统CPU核心数，智能分配线程
+- 如有NVIDIA GPU，将自动启用CUDA加速
+- 实时显示处理进度和性能统计
+- 支持大规模批量处理（数十个视频）
+
+## 步骤 5: 性能测试
+
+测试系统性能并查看加速效果：
+
+```bash
+# 快速性能测试
+python scripts/performance_benchmark.py --quick
+```
+
+这将显示多线程处理器的性能提升效果。
 
 ## 常用命令
 
@@ -111,6 +128,14 @@ pip install -r requirements.txt
 subtitle:
   font_name: "Arial"  # 或其他系统字体
 ```
+
+### GPU配置（可选）
+
+如果你的系统有NVIDIA GPU，想要启用GPU加速：
+
+1. 确保安装了CUDA：https://developer.nvidia.com/cuda-downloads
+2. 系统会自动检测并启用GPU加速
+3. 查看性能提升：`python scripts/performance_benchmark.py --quick`
 
 ### 问题: TTS 失败
 

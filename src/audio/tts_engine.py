@@ -65,7 +65,7 @@ class TTSEngine:
 
     def _edge_tts(self, text: str, output_path: Path, voice: str) -> Path:
         """
-        使用Edge TTS生成语音
+        使用Edge TTS生成语音（带重试机制）
 
         Args:
             text: 文本
@@ -75,27 +75,116 @@ class TTSEngine:
         Returns:
             输出文件路径
         """
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+
+        max_retries = 3
+        retry_delay = 2  # 秒
+
+        for attempt in range(max_retries):
+            try:
+                import edge_tts
+
+                # 创建异步任务
+                async def generate():
+                    communicate = edge_tts.Communicate(
+                        text=text,
+                        voice=voice,
+                        rate=self._format_rate(self.rate),
+                        volume=self._format_volume(self.volume),
+                        pitch=self._format_pitch(self.pitch)
+                    )
+                    await communicate.save(str(output_path))
+
+                # 运行异步任务
+                asyncio.run(generate())
+
+                return output_path
+
+            except Exception as e:
+                error_msg = str(e)
+
+                # 检查是否是401认证错误
+                if "401" in error_msg or "Invalid response status" in error_msg:
+                    logger.warning(f"Edge TTS 认证失败 (尝试 {attempt + 1}/{max_retries})")
+
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待 {retry_delay} 秒后重试...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                        continue
+                    else:
+                        # 最后一次尝试失败，尝试使用本地TTS
+                        logger.warning("Edge TTS 服务不可用，尝试使用本地TTS引擎")
+                        try:
+                            # macOS优先使用say命令
+                            import platform
+                            if platform.system() == 'Darwin':
+                                return self._macos_say(text, output_path)
+                            else:
+                                return self._pyttsx3(text, output_path)
+                        except Exception as fallback_error:
+                            raise RuntimeError(
+                                f"Edge TTS 和本地TTS都失败。"
+                                f"Edge TTS错误: {error_msg}; "
+                                f"本地TTS错误: {str(fallback_error)}"
+                            )
+                else:
+                    # 其他错误直接抛出
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Edge TTS 生成失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        raise RuntimeError(f"Edge TTS生成失败: {error_msg}")
+
+    def _macos_say(self, text: str, output_path: Path) -> Path:
+        """
+        使用macOS say命令生成语音
+
+        Args:
+            text: 文本
+            output_path: 输出路径
+
+        Returns:
+            输出文件路径
+        """
         try:
-            import edge_tts
+            import subprocess
+            import tempfile
 
-            # 创建异步任务
-            async def generate():
-                communicate = edge_tts.Communicate(
-                    text=text,
-                    voice=voice,
-                    rate=self._format_rate(self.rate),
-                    volume=self._format_volume(self.volume),
-                    pitch=self._format_pitch(self.pitch)
-                )
-                await communicate.save(str(output_path))
+            # 使用say命令生成AIFF文件
+            temp_aiff = tempfile.NamedTemporaryFile(suffix='.aiff', delete=False)
+            temp_aiff_path = temp_aiff.name
+            temp_aiff.close()
 
-            # 运行异步任务
-            asyncio.run(generate())
+            # 调整语速 (默认175，range: 90-720)
+            rate = int(175 * self.rate)
+
+            # 使用中文语音
+            voice = "Ting-Ting"  # 中文女声
+
+            # 生成语音
+            cmd = ['say', '-v', voice, '-r', str(rate), '-o', temp_aiff_path, text]
+            subprocess.run(cmd, check=True, capture_output=True)
+
+            # 转换为MP3格式（使用ffmpeg）
+            ffmpeg_cmd = [
+                'ffmpeg', '-y', '-i', temp_aiff_path,
+                '-acodec', 'libmp3lame', '-b:a', '128k',
+                str(output_path)
+            ]
+            subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+
+            # 清理临时文件
+            import os
+            os.remove(temp_aiff_path)
 
             return output_path
 
         except Exception as e:
-            raise RuntimeError(f"Edge TTS生成失败: {str(e)}")
+            raise RuntimeError(f"macOS say命令生成失败: {str(e)}")
 
     def _pyttsx3(self, text: str, output_path: Path) -> Path:
         """

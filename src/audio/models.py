@@ -1,12 +1,13 @@
 """
-STT (Speech-to-Text) 数据模型
+音频处理数据模型
 
-定义语音转文字功能的数据结构和类型。
+定义语音转文字(STT)和背景音乐推荐功能的数据结构和类型。
 """
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from enum import Enum
 
 
 @dataclass
@@ -320,3 +321,357 @@ class STTConfig:
         valid_keys = cls.__dataclass_fields__.keys()
         filtered_config = {k: v for k, v in config_dict.items() if k in valid_keys}
         return cls(**filtered_config)
+
+
+# =============================================================================
+# 背景音乐推荐相关数据模型
+# =============================================================================
+
+class CopyrightStatus(Enum):
+    """音乐版权状态枚举"""
+
+    PUBLIC_DOMAIN = "public_domain"
+    """公有领域，无版权限制"""
+
+    CREATIVE_COMMONS = "creative_commons"
+    """创意共享许可"""
+
+    ROYALTY_FREE = "royalty_free"
+    """免版税音乐"""
+
+    UNKNOWN = "unknown"
+    """版权状态未知"""
+
+    COPYRIGHTED = "copyrighted"
+    """受版权保护，不可用"""
+
+    @property
+    def is_safe_to_use(self) -> bool:
+        """判断是否安全使用"""
+        return self in [self.PUBLIC_DOMAIN, self.CREATIVE_COMMONS, self.ROYALTY_FREE]
+
+    @property
+    def license_description(self) -> str:
+        """获取许可证描述"""
+        descriptions = {
+            self.PUBLIC_DOMAIN: "公有领域，可自由使用",
+            self.CREATIVE_COMMONS: "创意共享许可",
+            self.ROYALTY_FREE: "免版税音乐",
+            self.UNKNOWN: "版权状态未知，谨慎使用",
+            self.COPYRIGHTED: "受版权保护，不可使用"
+        }
+        return descriptions.get(self, "未知状态")
+
+
+@dataclass
+class MusicRecommendation:
+    """音乐推荐结果"""
+
+    title: str
+    """音乐标题"""
+
+    artist: str
+    """艺术家/创作者"""
+
+    url: str
+    """下载链接"""
+
+    duration: float
+    """时长（秒）"""
+
+    genre: str
+    """音乐类型（如 ambient, electronic, classical）"""
+
+    mood: str
+    """情绪标签（如 calm, inspiring, energetic）"""
+
+    copyright_status: CopyrightStatus
+    """版权状态"""
+
+    confidence_score: float
+    """推荐置信度 (0.0-1.0)"""
+
+    source: str
+    """来源平台（如 freemusicarchive, ccsearch）"""
+
+    license_url: Optional[str] = None
+    """许可证链接"""
+
+    tags: Optional[List[str]] = None
+    """附加标签"""
+
+    file_size: Optional[int] = None
+    """文件大小（字节）"""
+
+    bitrate: Optional[int] = None
+    """比特率（kbps）"""
+
+    sample_rate: Optional[int] = None
+    """采样率（Hz）"""
+
+    created_at: Optional[datetime] = None
+    """创建时间"""
+
+    def __post_init__(self):
+        """数据验证"""
+        if not isinstance(self.title, str) or not self.title.strip():
+            raise ValueError("title must be a non-empty string")
+
+        if not isinstance(self.artist, str):
+            raise ValueError("artist must be a string")
+
+        if not isinstance(self.url, str) or not self.url.strip():
+            raise ValueError("url must be a non-empty string")
+
+        if not isinstance(self.duration, (int, float)) or self.duration <= 0:
+            raise ValueError("duration must be a positive number")
+
+        if not isinstance(self.genre, str):
+            raise ValueError("genre must be a string")
+
+        if not isinstance(self.mood, str):
+            raise ValueError("mood must be a string")
+
+        if not isinstance(self.copyright_status, CopyrightStatus):
+            raise ValueError("copyright_status must be a CopyrightStatus enum")
+
+        if not isinstance(self.confidence_score, (int, float)) or not (0.0 <= self.confidence_score <= 1.0):
+            raise ValueError("confidence_score must be between 0.0 and 1.0")
+
+        if not isinstance(self.source, str):
+            raise ValueError("source must be a string")
+
+        if self.tags is None:
+            self.tags = []
+
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+    @property
+    def is_safe_to_use(self) -> bool:
+        """判断是否安全使用"""
+        return self.copyright_status.is_safe_to_use
+
+    @property
+    def duration_formatted(self) -> str:
+        """格式化的时长字符串"""
+        minutes = int(self.duration // 60)
+        seconds = int(self.duration % 60)
+        return f"{minutes}:{seconds:02d}"
+
+    @property
+    def file_size_formatted(self) -> Optional[str]:
+        """格式化的文件大小字符串"""
+        if self.file_size is None:
+            return None
+
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if self.file_size < 1024.0:
+                return f"{self.file_size:.1f} {unit}"
+            self.file_size /= 1024.0
+        return f"{self.file_size:.1f} TB"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "title": self.title,
+            "artist": self.artist,
+            "url": self.url,
+            "duration": self.duration,
+            "genre": self.genre,
+            "mood": self.mood,
+            "copyright_status": self.copyright_status.value,
+            "confidence_score": self.confidence_score,
+            "source": self.source,
+            "license_url": self.license_url,
+            "tags": self.tags,
+            "file_size": self.file_size,
+            "bitrate": self.bitrate,
+            "sample_rate": self.sample_rate,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MusicRecommendation':
+        """从字典创建实例"""
+        # 处理版权状态
+        copyright_status = CopyrightStatus(data.get("copyright_status", "unknown"))
+
+        # 处理创建时间
+        created_at = None
+        if data.get("created_at"):
+            try:
+                created_at = datetime.fromisoformat(data["created_at"])
+            except (ValueError, TypeError):
+                created_at = datetime.now()
+
+        return cls(
+            title=data["title"],
+            artist=data.get("artist", "Unknown"),
+            url=data["url"],
+            duration=data["duration"],
+            genre=data.get("genre", "unknown"),
+            mood=data.get("mood", "neutral"),
+            copyright_status=copyright_status,
+            confidence_score=data.get("confidence_score", 0.5),
+            source=data.get("source", "unknown"),
+            license_url=data.get("license_url"),
+            tags=data.get("tags", []),
+            file_size=data.get("file_size"),
+            bitrate=data.get("bitrate"),
+            sample_rate=data.get("sample_rate"),
+            created_at=created_at,
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"MusicRecommendation("
+            f"title='{self.title}', "
+            f"artist='{self.artist}', "
+            f"genre='{self.genre}', "
+            f"mood='{self.mood}', "
+            f"copyright='{self.copyright_status.value}', "
+            f"confidence={self.confidence_score:.2f}"
+            f")"
+        )
+
+
+@dataclass
+class MusicSearchCriteria:
+    """音乐搜索条件"""
+
+    genres: Optional[List[str]] = None
+    """偏好的音乐类型"""
+
+    moods: Optional[List[str]] = None
+    """偏好的情绪类型"""
+
+    max_duration: Optional[float] = None
+    """最大时长（秒）"""
+
+    min_duration: Optional[float] = None
+    """最小时长（秒）"""
+
+    copyright_only: bool = True
+    """是否只搜索无版权音乐"""
+
+    sources: Optional[List[str]] = None
+    """指定的音乐来源"""
+
+    def __post_init__(self):
+        """参数验证"""
+        if self.genres is None:
+            self.genres = ["ambient", "electronic", "classical", "jazz"]
+
+        if self.moods is None:
+            self.moods = ["calm", "inspiring", "neutral"]
+
+        if self.sources is None:
+            self.sources = ["freemusicarchive", "ccsearch", "epidemicsound"]
+
+        if self.max_duration is not None and self.max_duration <= 0:
+            raise ValueError("max_duration must be positive")
+
+        if self.min_duration is not None and self.min_duration <= 0:
+            raise ValueError("min_duration must be positive")
+
+        if self.min_duration and self.max_duration and self.min_duration > self.max_duration:
+            raise ValueError("min_duration cannot be greater than max_duration")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "genres": self.genres,
+            "moods": self.moods,
+            "max_duration": self.max_duration,
+            "min_duration": self.min_duration,
+            "copyright_only": self.copyright_only,
+            "sources": self.sources,
+        }
+
+
+@dataclass
+class MusicLibraryEntry:
+    """音乐库条目"""
+
+    recommendation: MusicRecommendation
+    """音乐推荐信息"""
+
+    local_path: str
+    """本地文件路径"""
+
+    downloaded_at: datetime
+    """下载时间"""
+
+    last_used: Optional[datetime] = None
+    """最后使用时间"""
+
+    use_count: int = 0
+    """使用次数"""
+
+    file_hash: Optional[str] = None
+    """文件哈希值（用于完整性验证）"""
+
+    def __post_init__(self):
+        """数据验证"""
+        if not isinstance(self.recommendation, MusicRecommendation):
+            raise ValueError("recommendation must be a MusicRecommendation instance")
+
+        if not isinstance(self.local_path, str) or not self.local_path.strip():
+            raise ValueError("local_path must be a non-empty string")
+
+        if not isinstance(self.downloaded_at, datetime):
+            raise ValueError("downloaded_at must be a datetime")
+
+        if self.use_count < 0:
+            raise ValueError("use_count must be non-negative")
+
+    def mark_as_used(self):
+        """标记为已使用"""
+        self.last_used = datetime.now()
+        self.use_count += 1
+
+    @property
+    def is_expired(self, max_age_days: int = 30) -> bool:
+        """检查是否过期"""
+        if self.last_used is None:
+            # 如果从未使用，检查下载时间
+            age = datetime.now() - self.downloaded_at
+        else:
+            age = datetime.now() - self.last_used
+
+        return age.days > max_age_days
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "recommendation": self.recommendation.to_dict(),
+            "local_path": self.local_path,
+            "downloaded_at": self.downloaded_at.isoformat(),
+            "last_used": self.last_used.isoformat() if self.last_used else None,
+            "use_count": self.use_count,
+            "file_hash": self.file_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MusicLibraryEntry':
+        """从字典创建实例"""
+        recommendation = MusicRecommendation.from_dict(data["recommendation"])
+
+        downloaded_at = datetime.fromisoformat(data["downloaded_at"])
+
+        last_used = None
+        if data.get("last_used"):
+            try:
+                last_used = datetime.fromisoformat(data["last_used"])
+            except (ValueError, TypeError):
+                pass
+
+        return cls(
+            recommendation=recommendation,
+            local_path=data["local_path"],
+            downloaded_at=downloaded_at,
+            last_used=last_used,
+            use_count=data.get("use_count", 0),
+            file_hash=data.get("file_hash"),
+        )

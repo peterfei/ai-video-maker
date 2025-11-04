@@ -13,10 +13,13 @@ import uuid
 from config_loader import get_config
 from utils import setup_logger, generate_filename, ensure_dir
 from content_sources import TextSource, MaterialSource, AutoMaterialManager
-from audio import TTSEngine, AudioMixer, STTEngine
+from audio import TTSEngine, AudioMixer, STTEngine, MusicLibrary
 from subtitle import SubtitleGenerator, SubtitleRenderer, STTSubtitleGenerator
 from video_engine import VideoCompositor, VideoEffects
+from video_engine.gpu_accelerator import GPUVideoAccelerator
+from video_engine.gpu_effects import GPUEffectsProcessor
 from tasks import TaskQueue, VideoTask, BatchProcessor, TaskStatus
+from tasks.parallel_batch_processor import ParallelBatchProcessor
 
 
 class VideoFactory:
@@ -57,6 +60,24 @@ class VideoFactory:
         if self.auto_material_enabled:
             self.auto_material_manager = AutoMaterialManager(self.config.get('auto_materials', {}))
             self.logger.info("自动素材管理器已启用")
+
+        # 初始化音乐库（如果启用）
+        self.music_enabled = self.config.get('music.enabled', False)
+        if self.music_enabled:
+            self.music_library = MusicLibrary(self.config.get('music', {}))
+            self.logger.info("智能背景音乐库已启用")
+        else:
+            self.music_library = None
+
+        # 初始化GPU加速器和效果处理器
+        self.gpu_accelerator = GPUVideoAccelerator(self.config.get('performance', {}).get('gpu', {}))
+        self.gpu_effects = GPUEffectsProcessor(self.gpu_accelerator)
+
+        if self.gpu_accelerator.is_gpu_available():
+            gpu_info = self.gpu_accelerator.get_gpu_info()
+            self.logger.info(f"GPU加速已启用: {gpu_info['name']} ({gpu_info['memory_total_gb']:.1f}GB)")
+        else:
+            self.logger.info("GPU不可用，使用CPU处理")
 
         self.logger.info("视频生成工厂初始化完成")
 
@@ -194,13 +215,24 @@ class VideoFactory:
                     image_paths = [m.path for m in selected_materials] if selected_materials else []
 
                 if image_paths:
-                    video_clip = self.video_compositor.create_slideshow(
-                        images=image_paths,
-                        audio_path=str(final_audio_path),
-                        image_duration=self.config.get('templates.simple.image_duration', 5.0),
-                        transition=self.config.get('templates.simple.transition', 'fade'),
-                        transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
-                    )
+                    # 使用GPU加速的幻灯片制作（如果可用）
+                    if self.gpu_accelerator.is_gpu_available():
+                        self.logger.info("使用GPU加速幻灯片制作")
+                        video_clip = self.gpu_effects.create_slideshow_gpu(
+                            images=image_paths,
+                            audio_path=str(final_audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
+                    else:
+                        video_clip = self.video_compositor.create_slideshow(
+                            images=image_paths,
+                            audio_path=str(final_audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
                 else:
                     # 创建纯色背景视频
                     from moviepy.editor import AudioFileClip
@@ -253,6 +285,252 @@ class VideoFactory:
 
         except Exception as e:
             self.logger.error(f"视频生成失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def generate_video_with_music(
+        self,
+        text: str,
+        output_path: Optional[str] = None,
+        title: Optional[str] = None,
+        materials_dir: Optional[str] = None,
+        auto_music: bool = True
+    ) -> Dict[str, Any]:
+        """
+        生成带智能背景音乐的视频
+
+        Args:
+            text: 视频文本内容
+            output_path: 输出视频路径
+            title: 视频标题
+            materials_dir: 素材目录路径
+            auto_music: 是否自动选择背景音乐
+
+        Returns:
+            生成结果字典
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("开始生成带智能背景音乐的视频")
+
+        try:
+            # 检查音乐功能是否启用
+            if not self.music_enabled or not self.music_library:
+                self.logger.warning("智能背景音乐功能未启用，将使用标准视频生成")
+                # 降级到标准视频生成
+                return self.generate_video(
+                    script_text=text,
+                    materials_dir=materials_dir,
+                    output_path=output_path,
+                    title=title
+                )
+
+            # 1. 加载脚本
+            self.logger.info("步骤 1/8: 加载脚本")
+            script_segments = self.text_source.create_from_text(text)
+            title = title or "auto_music_video"
+            self.logger.info(f"加载了 {len(script_segments)} 个脚本片段")
+
+            # 2. 智能选择背景音乐
+            self.logger.info("步骤 2/8: 智能选择背景音乐")
+            full_text = " ".join(seg.text for seg in script_segments)
+
+            # 估算视频时长（简单估算）
+            estimated_duration = len(full_text.split()) * 0.5  # 假设每秒0.5个词
+
+            music_recommendation = None
+            if auto_music:
+                music_recommendation = await self.music_library.get_music_for_content(
+                    full_text, estimated_duration
+                )
+
+                if music_recommendation:
+                    self.logger.info(f"选择了背景音乐: {music_recommendation.title} ({music_recommendation.source})")
+                else:
+                    self.logger.warning("未找到合适的背景音乐，将使用默认背景音乐")
+            else:
+                self.logger.info("自动音乐选择已禁用")
+
+            # 3. 加载素材
+            self.logger.info("步骤 3/8: 加载素材")
+            if self.auto_material_enabled:
+                # 使用自动素材管理器
+                self.logger.info("使用自动素材管理器获取素材")
+                material_paths = self.auto_material_manager.get_materials_for_script(
+                    script_segments,
+                    materials_per_segment=self.config.get('auto_materials.materials_per_segment', 1)
+                )
+                materials = [{'path': p} for p in material_paths] if material_paths else []
+                self.logger.info(f"自动获取了 {len(materials)} 个素材")
+            elif materials_dir:
+                materials = self.material_source.load_materials(materials_dir)
+                self.logger.info(f"加载了 {len(materials)} 个素材")
+            else:
+                materials = []
+                self.logger.info("未提供素材目录，将生成纯背景视频")
+
+            # 4. 生成语音
+            self.logger.info("步骤 4/8: 生成语音")
+            temp_dir = ensure_dir(Path("output/temp"))
+
+            # 获取所有句子
+            sentences = []
+            for seg in script_segments:
+                seg_sentences = self.subtitle_generator._split_into_sentences(seg.text)
+                sentences.extend(seg_sentences)
+
+            self.logger.info(f"共分割为 {len(sentences)} 个句子")
+
+            # 生成音频片段
+            segment_dir = temp_dir / f"segments_{uuid.uuid4().hex[:8]}"
+            audio_paths, audio_durations = self.tts_engine.generate_segments(
+                sentences,
+                str(segment_dir)
+            )
+
+            self.logger.info(f"生成了 {len(audio_paths)} 个音频片段")
+
+            # 拼接音频
+            voice_audio_path = temp_dir / f"voice_{uuid.uuid4().hex[:8]}.mp3"
+            self.audio_mixer.concatenate_audio_files(
+                audio_paths,
+                str(voice_audio_path),
+                silence_duration=0.0
+            )
+
+            audio_duration = sum(audio_durations)
+            self.logger.info(f"语音生成完成，总时长: {audio_duration:.2f}秒")
+
+            # 5. 处理背景音乐
+            self.logger.info("步骤 5/8: 处理背景音乐")
+            if music_recommendation and music_recommendation.local_path:
+                # 使用智能选择的音乐
+                music_path = music_recommendation.local_path
+                final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                self.audio_mixer.mix_voice_and_music(
+                    str(voice_audio_path),
+                    music_path,
+                    str(final_audio_path)
+                )
+                self.logger.info("智能背景音乐已混合")
+            else:
+                # 使用默认背景音乐或纯语音
+                if self.config.get('music.enabled', True):
+                    default_music = self.config.get('music.default_track')
+                    if default_music and Path(default_music).exists():
+                        final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                        self.audio_mixer.mix_voice_and_music(
+                            str(voice_audio_path),
+                            default_music,
+                            str(final_audio_path)
+                        )
+                        self.logger.info("默认背景音乐已添加")
+                    else:
+                        final_audio_path = voice_audio_path
+                        self.logger.info("未找到背景音乐文件，使用纯语音")
+                else:
+                    final_audio_path = voice_audio_path
+                    self.logger.info("背景音乐已禁用")
+
+            # 6. 生成字幕
+            self.logger.info("步骤 6/8: 生成字幕")
+            subtitle_segments = self.subtitle_generator.generate_from_segments(
+                sentences,
+                audio_durations
+            )
+            self.logger.info(f"生成了 {len(subtitle_segments)} 个字幕片段")
+
+            # 7. 创建视频
+            self.logger.info("步骤 7/8: 创建视频")
+
+            if materials:
+                # 处理素材路径
+                if isinstance(materials[0], dict) and 'path' in materials[0]:
+                    image_paths = [m['path'] for m in materials]
+                else:
+                    selected_materials = self.material_source.select_materials(
+                        count=max(5, len(script_segments)),
+                        material_type='image'
+                    )
+                    image_paths = [m.path for m in selected_materials] if selected_materials else []
+
+                if image_paths:
+                    # 使用GPU加速的幻灯片制作（如果可用）
+                    if self.gpu_accelerator.is_gpu_available():
+                        self.logger.info("使用GPU加速幻灯片制作")
+                        video_clip = self.gpu_effects.create_slideshow_gpu(
+                            images=image_paths,
+                            audio_path=str(final_audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
+                    else:
+                        video_clip = self.video_compositor.create_slideshow(
+                            images=image_paths,
+                            audio_path=str(final_audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
+                else:
+                    # 创建纯色背景视频
+                    from moviepy.editor import AudioFileClip
+                    video_clip = self.video_compositor.create_background_video(audio_duration)
+                    audio_clip = AudioFileClip(str(final_audio_path))
+                    video_clip = video_clip.set_audio(audio_clip)
+            else:
+                # 创建纯色背景视频
+                from moviepy.editor import AudioFileClip
+                video_clip = self.video_compositor.create_background_video(audio_duration)
+                audio_clip = AudioFileClip(str(final_audio_path))
+                video_clip = video_clip.set_audio(audio_clip)
+
+            # 8. 添加字幕并导出
+            self.logger.info("步骤 8/8: 渲染字幕并导出")
+            if self.config.get('subtitle.enabled', True):
+                video_clip = self.subtitle_renderer.render_on_video(
+                    video_clip,
+                    subtitle_segments
+                )
+                self.logger.info("字幕已添加")
+
+            # 导出视频
+            if not output_path:
+                output_dir = ensure_dir(Path(self.config.get('paths.output', 'output')))
+                filename = generate_filename(
+                    title,
+                    self.config.get('export.filename_pattern', '{title}_{timestamp}'),
+                    self.config.get('export.format', 'mp4')
+                )
+                output_path = output_dir / filename
+
+            final_path = self.video_compositor.render_video(
+                video_clip,
+                str(output_path),
+                preset=self._get_quality_preset()
+            )
+
+            self.logger.info(f"智能背景音乐视频生成成功: {final_path}")
+            self.logger.info("=" * 60)
+
+            return {
+                'success': True,
+                'output_path': str(final_path),
+                'duration': audio_duration,
+                'subtitle_count': len(subtitle_segments),
+                'title': title,
+                'music_used': music_recommendation.title if music_recommendation else None,
+                'music_source': music_recommendation.source if music_recommendation else None,
+                'music_copyright_status': music_recommendation.copyright_status.value if music_recommendation else None
+            }
+
+        except Exception as e:
+            self.logger.error(f"智能背景音乐视频生成失败: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
 
@@ -344,13 +622,24 @@ class VideoFactory:
                     image_paths = [m.path for m in selected_materials] if selected_materials else []
 
                 if image_paths:
-                    video_clip = self.video_compositor.create_slideshow(
-                        images=image_paths,
-                        audio_path=str(audio_path),
-                        image_duration=self.config.get('templates.simple.image_duration', 5.0),
-                        transition=self.config.get('templates.simple.transition', 'fade'),
-                        transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
-                    )
+                    # 使用GPU加速的幻灯片制作（如果可用）
+                    if self.gpu_accelerator.is_gpu_available():
+                        self.logger.info("使用GPU加速幻灯片制作")
+                        video_clip = self.gpu_effects.create_slideshow_gpu(
+                            images=image_paths,
+                            audio_path=str(audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
+                    else:
+                        video_clip = self.video_compositor.create_slideshow(
+                            images=image_paths,
+                            audio_path=str(audio_path),
+                            image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                            transition=self.config.get('templates.simple.transition', 'fade'),
+                            transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                        )
                 else:
                     # 创建纯色背景视频
                     from moviepy.editor import AudioFileClip
@@ -456,6 +745,18 @@ def main():
     parser.add_argument('--config', '-c', type=str, default='config/default_config.yaml',
                          help='配置文件路径')
     parser.add_argument('--batch', '-b', type=str, help='批量处理：脚本目录路径')
+
+    # 音乐相关选项
+    parser.add_argument('--auto-music', action='store_true', default=None,
+                         help='启用智能背景音乐选择（默认启用）')
+    parser.add_argument('--no-music', action='store_true',
+                         help='禁用智能背景音乐选择')
+    parser.add_argument('--music-genre', type=str,
+                         help='指定音乐类型（ambient, electronic, classical, jazz）')
+    parser.add_argument('--music-mood', type=str,
+                         help='指定音乐情绪（calm, inspiring, energetic）')
+
+    # 字体管理选项
     parser.add_argument('--font-manager', action='store_true', help='启动字体管理器界面')
     parser.add_argument('--add-font', type=str, help='添加自定义字体文件')
     parser.add_argument('--preview-font', type=str, help='预览字体效果')
@@ -508,23 +809,78 @@ def main():
                 print(f"\n✗ 音频字幕视频生成失败: {result['error']}")
                 sys.exit(1)
         else:
-            # 文本输入模式（原有功能）
-            result = factory.generate_video(
-                script_path=args.script,
-                script_text=args.text,
-                materials_dir=args.materials,
-                output_path=args.output,
-                title=args.title
-            )
+            # 处理音乐选项
+            auto_music = True  # 默认启用
+            if args.no_music:
+                auto_music = False
+            elif args.auto_music is not None:
+                auto_music = args.auto_music
 
-            if result['success']:
-                print(f"\n✓ 视频生成成功!")
-                print(f"  输出路径: {result['output_path']}")
-                print(f"  时长: {result['duration']:.2f}秒")
-                print(f"  字幕数: {result['subtitle_count']}")
+            # 检查是否使用智能音乐功能
+            use_smart_music = factory.music_enabled and auto_music
+
+            if use_smart_music:
+                # 使用智能背景音乐功能
+                import asyncio
+
+                # 处理输入文本
+                input_text = args.text
+                if args.script:
+                    # 从脚本文件读取文本
+                    script_path = Path(args.script)
+                    if not script_path.exists():
+                        print(f"错误: 脚本文件不存在: {args.script}")
+                        sys.exit(1)
+                    try:
+                        input_text = script_path.read_text(encoding='utf-8')
+                        if not args.title:
+                            args.title = script_path.stem
+                    except Exception as e:
+                        print(f"错误: 读取脚本文件失败: {e}")
+                        sys.exit(1)
+
+                if not input_text:
+                    print("错误: 必须提供文本内容 (--text) 或脚本文件 (--script)")
+                    sys.exit(1)
+
+                result = asyncio.run(factory.generate_video_with_music(
+                    text=input_text,
+                    output_path=args.output,
+                    title=args.title,
+                    materials_dir=args.materials,
+                    auto_music=auto_music
+                ))
+
+                if result['success']:
+                    print(f"\n✓ 智能背景音乐视频生成成功!")
+                    print(f"  输出路径: {result['output_path']}")
+                    print(f"  时长: {result['duration']:.2f}秒")
+                    print(f"  字幕数: {result['subtitle_count']}")
+                    if result.get('music_used'):
+                        print(f"  背景音乐: {result['music_used']}")
+                        print(f"  音乐来源: {result['music_source']}")
+                        print(f"  版权状态: {result['music_copyright_status']}")
+                else:
+                    print(f"\n✗ 智能背景音乐视频生成失败: {result['error']}")
+                    sys.exit(1)
             else:
-                print(f"\n✗ 视频生成失败: {result['error']}")
-                sys.exit(1)
+                # 使用原有视频生成功能
+                result = factory.generate_video(
+                    script_path=args.script,
+                    script_text=args.text,
+                    materials_dir=args.materials,
+                    output_path=args.output,
+                    title=args.title
+                )
+
+                if result['success']:
+                    print(f"\n✓ 视频生成成功!")
+                    print(f"  输出路径: {result['output_path']}")
+                    print(f"  时长: {result['duration']:.2f}秒")
+                    print(f"  字幕数: {result['subtitle_count']}")
+                else:
+                    print(f"\n✗ 视频生成失败: {result['error']}")
+                    sys.exit(1)
 
 
 def batch_process(factory: VideoFactory, scripts_dir: str):
@@ -563,22 +919,56 @@ def batch_process(factory: VideoFactory, scripts_dir: str):
         queue.add_task(task)
         print(f"已添加任务: {script_file.name}")
 
-    # 创建批处理器
-    processor = BatchProcessor(
-        task_queue=queue,
-        config=factory.config.get('batch', {}),
-        video_generator=factory.generate_from_task
-    )
+    # 检查是否启用性能优化
+    perf_config = factory.config.get('performance', {})
+    threading_enabled = perf_config.get('threading', {}).get('enabled', False)
+
+    if threading_enabled:
+        # 使用并行批处理器
+        print("⚡ 使用并行批处理器（多线程 + GPU加速）")
+        processor = ParallelBatchProcessor(
+            task_queue=queue,
+            config=perf_config,
+            video_generator=factory.generate_from_task
+        )
+    else:
+        # 使用传统批处理器
+        print("🔄 使用传统批处理器")
+        processor = BatchProcessor(
+            task_queue=queue,
+            config=factory.config.get('batch', {}),
+            video_generator=factory.generate_from_task
+        )
 
     # 处理任务
     print("\n开始批量处理...")
-    stats = processor.process_all_pending()
+    if threading_enabled:
+        result = processor.process_batch()
+        stats = {
+            'total_processed': result.total_tasks,
+            'successful': result.successful_tasks,
+            'failed': result.failed_tasks,
+            'duration_seconds': result.total_duration,
+            'throughput': result.throughput,
+            'peak_memory_usage': result.peak_memory_usage
+        }
+    else:
+        stats = processor.process_all_pending()
 
     print(f"\n批量处理完成!")
     print(f"  总处理: {stats['total_processed']}")
     print(f"  成功: {stats['successful']}")
     print(f"  失败: {stats['failed']}")
     print(f"  耗时: {stats.get('duration_seconds', 0):.2f}秒")
+
+    # 显示额外性能信息
+    if threading_enabled:
+        print(f"  吞吐量: {stats.get('throughput', 0):.2f} tasks/秒")
+        print(f"  峰值内存: {stats.get('peak_memory_usage', 0)} MB")
+
+    # 关闭并行处理器
+    if threading_enabled:
+        processor.shutdown()
 
 
 def handle_font_commands(factory: VideoFactory, args):

@@ -29,10 +29,14 @@ performance:
     retry_times: 3
     save_logs: true
 
-  # GPU加速设置
+  # GPU加速设置 - 已优化为推荐配置
   gpu:
-    enabled: true
+    enabled: true                 # ✅ 启用GPU加速
     device: auto                  # auto, cuda:0, cpu
+    backend_priority:             # GPU后端优先级（已优化）
+      - mps                       # ✅ Apple Silicon优先（M1/M2/M3/M4）
+      - cuda                      # NVIDIA GPU次之
+      - cpu                       # CPU回退
     memory_limit: 0.8             # GPU内存使用比例 (0.0-1.0)
     min_gpu_memory: 2147483648   # 最小GPU内存要求(2GB)
     max_batch_size: 16            # 最大批处理大小
@@ -78,12 +82,63 @@ export:
   overwrite: false
   quality: high
 music:
+  # 基础音乐设置
   default_track: assets/music/default.mp3
-  enabled: true
+  enabled: false                       # 暂时禁用音乐功能
   fade_in: 2.0
   fade_out: 3.0
   loop: true
   volume: 0.2
+
+  # 智能音乐选择设置
+  auto_select: false                   # 禁用智能音乐选择
+  copyright_only: true                 # 只使用无版权音乐
+
+  # OpenAI配置
+  openai:
+    model: "gpt-4"                     # 使用的模型
+    temperature: 0.7                   # 生成温度
+    max_tokens: 1000                   # 最大token数
+    api_key: ${OPENAI_API_KEY}         # API密钥
+
+  # 音乐偏好
+  preferences:
+    genres: ["ambient", "electronic", "classical", "jazz"]  # 偏好类型
+    moods: ["calm", "inspiring", "neutral"]  # 情绪偏好
+    max_duration: 600                   # 最大音乐时长（秒）
+    min_duration: 30                    # 最小时长（秒）
+
+  # 下载配置
+  download:
+    dir: "assets/music"                 # 下载目录
+    max_size: 52428800                  # 最大文件大小（50MB）
+    timeout: 30                         # 下载超时（秒）
+    chunk_size: 8192                    # 下载块大小
+
+  # 缓存配置
+  cache:
+    enabled: true
+    max_age: 30                         # 缓存最大年龄（天）
+    max_files: 100                      # 最大缓存文件数
+    library_path: "data/music_library.json"  # 库文件路径
+
+  # 音乐源配置
+  sources:
+    jamendo:
+      enabled: true
+      copyright_status: "creative_commons"
+      client_id: "your_jamendo_client_id"  # 申请地址：https://devportal.jamendo.com/
+    pixabay:
+      enabled: true
+      copyright_status: "royalty_free"
+      api_key_env: "PIXABAY_API_KEY"     # 申请地址：https://pixabay.com/api/docs/
+    freesound:
+      enabled: true
+      copyright_status: "creative_commons"
+      api_key_env: "FREESOUND_API_KEY"   # 申请地址：https://freesound.org/apiv2/apply/
+    publicdomain:
+      enabled: true
+      copyright_status: "public_domain"
 paths:
   assets: assets
   data: data
@@ -177,7 +232,9 @@ video:
   - 0
   - 0
   bitrate: 5000k
-  codec: libx264
+  codec: h264_videotoolbox        # ✅ Apple硬件编码器（M系列芯片推荐，性能提升2-3倍）
+  # codec: libx264                # 软件编码器（跨平台兼容，但速度较慢）
+  # codec: h264_nvenc             # NVIDIA硬件编码器（NVIDIA显卡推荐）
   duration: auto
   fps: 30
   resolution:

@@ -29,9 +29,15 @@ python-dotenv>=1.0.0
 # celery==5.3.1
 # redis==4.6.0
 
-# AI 集成 (可选)
-# openai==0.27.8
-# requests==2.31.0
+# AI 集成
+openai>=1.0.0
+requests>=2.31.0
+
+# 异步处理
+aiohttp>=3.8.0
+
+# 音频元数据处理
+mutagen>=1.46.0
 
 # 实用工具
 tqdm>=4.65.0
