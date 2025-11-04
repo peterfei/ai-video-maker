@@ -826,7 +826,7 @@ def main():
                 sys.exit(1)
         else:
             # 处理音乐选项
-            auto_music = True  # 默认启用
+            auto_music = factory.config.get('music.auto_music', True)  # 从配置读取默认值
             if args.no_music:
                 auto_music = False
             elif args.auto_music is not None:

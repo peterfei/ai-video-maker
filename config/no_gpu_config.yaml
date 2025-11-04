@@ -91,6 +91,7 @@ music:
 
   # 智能音乐选择设置
   auto_select: false                   # 禁用智能音乐选择
+  auto_music: true                     # 默认启用自动音乐选择
   copyright_only: true                 # 只使用无版权音乐
   enabled: false                       # 禁用智能音乐库
 
