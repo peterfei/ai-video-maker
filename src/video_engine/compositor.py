@@ -44,7 +44,7 @@ class VideoCompositor:
             images: 图片路径列表
             audio_path: 音频文件路径
             image_duration: 每张图片持续时间
-            transition: 转场效果
+            transition: 转场效果 (fade/none)
             transition_duration: 转场持续时间
 
         Returns:
@@ -53,8 +53,27 @@ class VideoCompositor:
         if not images:
             raise ValueError("图片列表不能为空")
 
+        # 如果有音频，先获取音频时长以调整素材时长
+        audio_duration = None
+        if audio_path:
+            audio = AudioFileClip(audio_path)
+            audio_duration = audio.duration
+
         # 创建图片片段列表
         clips = []
+
+        # 计算每张图片的实际持续时间
+        if audio_duration and len(images) > 1 and transition == "fade":
+            # 考虑转场重叠，计算单个图片时长
+            # 总时长 = n * 图片时长 - (n-1) * 转场时长
+            # 图片时长 = (总时长 + (n-1) * 转场时长) / n
+            n = len(images)
+            adjusted_image_duration = (audio_duration + (n - 1) * transition_duration) / n
+        elif audio_duration:
+            # 无转场，平均分配时间
+            adjusted_image_duration = audio_duration / len(images)
+        else:
+            adjusted_image_duration = image_duration
 
         for img_path in images:
             # 加载图片
@@ -64,33 +83,40 @@ class VideoCompositor:
             clip = clip.resize(self.resolution)
 
             # 设置持续时间
-            clip = clip.set_duration(image_duration)
+            clip = clip.set_duration(adjusted_image_duration)
 
             clips.append(clip)
 
-        # 添加转场效果
+        # 应用转场效果
         if transition == "fade" and len(clips) > 1:
+            # 使用crossfade进行转场
             for i in range(len(clips)):
                 if i > 0:
                     clips[i] = clips[i].crossfadein(transition_duration)
                 if i < len(clips) - 1:
                     clips[i] = clips[i].crossfadeout(transition_duration)
 
-        # 拼接视频
-        video = concatenate_videoclips(clips, method="compose")
+            # 使用compose方法进行拼接，支持重叠
+            video = concatenate_videoclips(clips, method="compose")
+        else:
+            # 无转场，直接拼接
+            video = concatenate_videoclips(clips)
 
         # 添加音频
         if audio_path:
-            audio = AudioFileClip(audio_path)
-
-            # 调整视频时长匹配音频
-            if audio.duration > video.duration:
-                # 循环最后一张图片
-                last_clip = clips[-1].set_duration(audio.duration - video.duration + image_duration)
-                video = concatenate_videoclips(clips[:-1] + [last_clip], method="compose")
-            elif audio.duration < video.duration:
-                # 裁剪视频
-                video = video.subclip(0, audio.duration)
+            # 微调视频时长以精确匹配音频
+            if abs(video.duration - audio_duration) > 0.1:
+                if video.duration > audio_duration:
+                    # 裁剪视频
+                    video = video.subclip(0, audio_duration)
+                else:
+                    # 延长最后一帧
+                    extension = ColorClip(
+                        size=self.resolution,
+                        color=self.background_color,
+                        duration=audio_duration - video.duration
+                    )
+                    video = concatenate_videoclips([video, extension])
 
             # 设置音频
             video = video.set_audio(audio)

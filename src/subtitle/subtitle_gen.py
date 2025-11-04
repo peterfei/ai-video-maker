@@ -66,7 +66,7 @@ class SubtitleGenerator:
 
         Args:
             text: 文本内容
-            audio_duration: 音频总时长（秒）
+            audio_duration: 音频总时长（秒），如果提供则按实际时长精确同步
 
         Returns:
             SubtitleSegment列表
@@ -74,69 +74,114 @@ class SubtitleGenerator:
         # 分句
         sentences = self._split_into_sentences(text)
 
+        if not sentences:
+            return []
+
         # 计算每句的时长
         segments = []
         current_time = 0.0
 
-        for i, sentence in enumerate(sentences):
-            # 计算字幕持续时间
-            char_count = len(sentence)
-            duration = char_count * self.duration_per_char
+        if audio_duration is not None:
+            # 使用精确音频时长进行同步
+            # 按字符数比例分配时间
+            total_chars = sum(len(sentence) for sentence in sentences)
 
-            # 如果提供了总时长，按比例调整
-            if audio_duration and i == len(sentences) - 1:
-                # 最后一句，确保不超过总时长
-                duration = min(duration, audio_duration - current_time)
+            if total_chars == 0:
+                return []
 
-            segment = SubtitleSegment(
-                text=sentence,
-                start_time=current_time,
-                end_time=current_time + duration,
-                index=i + 1
-            )
+            for i, sentence in enumerate(sentences):
+                char_count = len(sentence)
+                # 按字符数比例分配时间
+                duration = (char_count / total_chars) * audio_duration
 
-            segments.append(segment)
-            current_time += duration
+                # 确保最后一段精确到达audio_duration
+                if i == len(sentences) - 1:
+                    duration = audio_duration - current_time
+
+                segment = SubtitleSegment(
+                    text=sentence,
+                    start_time=current_time,
+                    end_time=current_time + duration,
+                    index=i + 1
+                )
+
+                segments.append(segment)
+                current_time += duration
+        else:
+            # 向后兼容：使用字符时长估算
+            import logging
+            logging.warning("未提供audio_duration参数，使用默认时长估算模式")
+
+            for i, sentence in enumerate(sentences):
+                # 计算字幕持续时间
+                char_count = len(sentence)
+                duration = char_count * self.duration_per_char
+
+                segment = SubtitleSegment(
+                    text=sentence,
+                    start_time=current_time,
+                    end_time=current_time + duration,
+                    index=i + 1
+                )
+
+                segments.append(segment)
+                current_time += duration
 
         return segments
 
     def generate_from_segments(
         self,
-        script_segments: List[Any],
+        sentences: List[str],
         audio_durations: List[float]
     ) -> List[SubtitleSegment]:
         """
-        从脚本片段和音频时长生成字幕
+        从句子列表和对应的音频时长生成字幕
 
         Args:
-            script_segments: 脚本片段列表
-            audio_durations: 对应的音频时长列表
+            sentences: 句子列表
+            audio_durations: 对应的音频时长列表（每个句子的实际TTS时长）
 
         Returns:
             SubtitleSegment列表
+
+        Raises:
+            ValueError: 当句子数量与时长数量不匹配时
         """
-        if len(script_segments) != len(audio_durations):
-            raise ValueError("脚本片段和音频时长数量不匹配")
+        if len(sentences) != len(audio_durations):
+            raise ValueError(
+                f"句子数量({len(sentences)})与音频时长数量({len(audio_durations)})不匹配"
+            )
+
+        import logging
+        logger = logging.getLogger(__name__)
 
         subtitle_segments = []
         current_time = 0.0
 
-        for i, (script_seg, duration) in enumerate(zip(script_segments, audio_durations)):
-            # 将长文本分割成多行
-            lines = self._split_text_into_lines(script_seg.text)
+        for i, (sentence, duration) in enumerate(zip(sentences, audio_durations)):
+            # 验证时长
+            if duration <= 0:
+                logger.warning(f"句子 {i} 的音频时长为 {duration}，使用最小时长 0.1秒")
+                duration = max(0.1, duration)
 
-            # 为每行分配时间
-            line_duration = duration / len(lines)
+            # 创建字幕片段（每个句子一个字幕）
+            segment = SubtitleSegment(
+                text=sentence.strip(),
+                start_time=current_time,
+                end_time=current_time + duration,
+                index=i + 1
+            )
 
-            for j, line in enumerate(lines):
-                segment = SubtitleSegment(
-                    text=line,
-                    start_time=current_time,
-                    end_time=current_time + line_duration,
-                    index=len(subtitle_segments) + 1
-                )
-                subtitle_segments.append(segment)
-                current_time += line_duration
+            subtitle_segments.append(segment)
+            current_time += duration
+
+            logger.debug(
+                f"字幕 {i+1}: {sentence[:30]}... "
+                f"[{segment.start_time:.2f}s - {segment.end_time:.2f}s] "
+                f"(时长: {duration:.2f}s)"
+            )
+
+        logger.info(f"生成 {len(subtitle_segments)} 个字幕片段，总时长 {current_time:.2f}秒")
 
         return subtitle_segments
 

@@ -30,7 +30,8 @@ class TTSEngine:
         self,
         text: str,
         output_path: str,
-        voice: Optional[str] = None
+        voice: Optional[str] = None,
+        return_duration: bool = False
     ) -> Path:
         """
         将文本转换为语音
@@ -39,9 +40,10 @@ class TTSEngine:
             text: 要转换的文本
             output_path: 输出音频文件路径
             voice: 语音（可选，覆盖默认设置）
+            return_duration: 是否返回音频时长（返回元组）
 
         Returns:
-            输出文件路径
+            输出文件路径，或 (输出文件路径, 音频时长) 元组
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,11 +51,17 @@ class TTSEngine:
         voice = voice or self.voice
 
         if self.engine == 'edge-tts':
-            return self._edge_tts(text, output_path, voice)
+            result = self._edge_tts(text, output_path, voice)
         elif self.engine == 'pyttsx3':
-            return self._pyttsx3(text, output_path)
+            result = self._pyttsx3(text, output_path)
         else:
             raise ValueError(f"不支持的TTS引擎: {self.engine}")
+
+        if return_duration:
+            duration = self.get_audio_duration(str(result))
+            return (result, duration)
+        else:
+            return result
 
     def _edge_tts(self, text: str, output_path: Path, voice: str) -> Path:
         """
@@ -192,6 +200,70 @@ class TTSEngine:
             output_paths.append(output_path)
 
         return output_paths
+
+    def generate_segments(
+        self,
+        sentences: List[str],
+        output_dir: str,
+        prefix: str = "segment",
+        progress_callback: Optional[callable] = None
+    ) -> tuple[List[Path], List[float]]:
+        """
+        为句子列表分段生成音频，并返回每段的实际时长
+
+        Args:
+            sentences: 句子列表
+            output_dir: 输出目录
+            prefix: 文件名前缀
+            progress_callback: 进度回调函数，接收 (current, total) 参数
+
+        Returns:
+            (音频文件路径列表, 音频时长列表) 元组
+        """
+        if not sentences:
+            return ([], [])
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        audio_paths = []
+        audio_durations = []
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        total = len(sentences)
+        for i, sentence in enumerate(sentences):
+            # 跳过空句子
+            if not sentence or not sentence.strip():
+                logger.warning(f"跳过空句子 (索引 {i})")
+                continue
+
+            try:
+                # 生成音频文件
+                output_path = output_dir / f"{prefix}_{i:03d}.mp3"
+                self.text_to_speech(sentence.strip(), str(output_path))
+
+                # 获取音频时长
+                duration = self.get_audio_duration(str(output_path))
+
+                audio_paths.append(output_path)
+                audio_durations.append(duration)
+
+                logger.info(f"生成音频片段 {i+1}/{total}: {sentence[:30]}... ({duration:.2f}秒)")
+
+                # 调用进度回调
+                if progress_callback:
+                    progress_callback(i + 1, total)
+
+            except Exception as e:
+                logger.error(f"生成音频片段 {i} 失败: {str(e)}")
+                # 继续处理下一个，不中断整个流程
+                continue
+
+        logger.info(f"共生成 {len(audio_paths)} 个音频片段，总时长 {sum(audio_durations):.2f}秒")
+
+        return (audio_paths, audio_durations)
 
     def get_audio_duration(self, audio_path: str) -> float:
         """

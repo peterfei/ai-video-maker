@@ -34,12 +34,15 @@ env/
 .DS_Store
 
 # 项目特定
+openspec/
 output/
 !output/.gitkeep
 data/materials/*
 !data/materials/.gitkeep
 data/scripts/*
 !data/scripts/.gitkeep
+data/material_library/
+data/image_cache/
 assets/music/*
 !assets/music/.gitkeep
 
@@ -58,3 +61,6 @@ assets/music/*
 
 # 任务队列数据
 task_queue.json
+AGENTS.md
+.claude/
+CLAUDE.md

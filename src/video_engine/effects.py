@@ -376,3 +376,39 @@ class VideoEffects:
             result = effect_func(result)
 
         return result
+
+    @staticmethod
+    def create_fade_transition(clip1: VideoClip, clip2: VideoClip, duration: float = 0.5) -> VideoClip:
+        """
+        创建两个clip之间的淡入淡出转场效果
+
+        Args:
+            clip1: 第一个视频片段
+            clip2: 第二个视频片段
+            duration: 转场持续时间
+
+        Returns:
+            包含转场效果的合成VideoClip
+        """
+        from moviepy.editor import CompositeVideoClip
+
+        # 确保转场时长不超过任一clip时长的一半
+        max_transition = min(clip1.duration / 2, clip2.duration / 2)
+        transition_dur = min(duration, max_transition)
+
+        if transition_dur <= 0:
+            # 无法添加转场，直接拼接
+            from moviepy.editor import concatenate_videoclips
+            return concatenate_videoclips([clip1, clip2])
+
+        # clip1淡出
+        clip1 = clip1.crossfadeout(transition_dur)
+
+        # clip2淡入并设置开始时间以实现重叠
+        clip2 = clip2.crossfadein(transition_dur)
+        clip2 = clip2.set_start(clip1.duration - transition_dur)
+
+        # 合成
+        final = CompositeVideoClip([clip1, clip2])
+
+        return final

@@ -107,15 +107,38 @@ class VideoFactory:
                 materials = []
                 self.logger.info("未提供素材目录，将生成纯背景视频")
 
-            # 3. 生成语音
-            self.logger.info("步骤 3/7: 生成语音")
+            # 3. 生成语音（分段生成以获取精确时长）
+            self.logger.info("步骤 3/7: 生成语音（分段模式）")
             temp_dir = ensure_dir(Path("output/temp"))
-            full_text = self.text_source.get_total_text(script_segments)
 
+            # 获取所有句子
+            sentences = []
+            for seg in script_segments:
+                # 将每个脚本片段的文本按句子分割
+                seg_sentences = self.subtitle_generator._split_into_sentences(seg.text)
+                sentences.extend(seg_sentences)
+
+            self.logger.info(f"共分割为 {len(sentences)} 个句子")
+
+            # 为每个句子生成音频，并获取实际时长
+            segment_dir = temp_dir / f"segments_{uuid.uuid4().hex[:8]}"
+            audio_paths, audio_durations = self.tts_engine.generate_segments(
+                sentences,
+                str(segment_dir)
+            )
+
+            self.logger.info(f"生成了 {len(audio_paths)} 个音频片段")
+
+            # 拼接所有音频片段
             audio_path = temp_dir / f"voice_{uuid.uuid4().hex[:8]}.mp3"
-            self.tts_engine.text_to_speech(full_text, str(audio_path))
-            audio_duration = self.tts_engine.get_audio_duration(str(audio_path))
-            self.logger.info(f"语音生成完成，时长: {audio_duration:.2f}秒")
+            self.audio_mixer.concatenate_audio_files(
+                audio_paths,
+                str(audio_path),
+                silence_duration=0.0  # 不插入静音
+            )
+
+            audio_duration = sum(audio_durations)
+            self.logger.info(f"语音生成完成，总时长: {audio_duration:.2f}秒")
 
             # 4. 添加背景音乐
             self.logger.info("步骤 4/7: 添加背景音乐")
@@ -136,13 +159,13 @@ class VideoFactory:
                 final_audio_path = audio_path
                 self.logger.info("背景音乐已禁用")
 
-            # 5. 生成字幕
-            self.logger.info("步骤 5/7: 生成字幕")
-            subtitle_segments = self.subtitle_generator.generate_from_text(
-                full_text,
-                audio_duration
+            # 5. 生成字幕（基于实际音频时长）
+            self.logger.info("步骤 5/7: 生成字幕（精确同步模式）")
+            subtitle_segments = self.subtitle_generator.generate_from_segments(
+                sentences,
+                audio_durations
             )
-            self.logger.info(f"生成了 {len(subtitle_segments)} 个字幕片段")
+            self.logger.info(f"生成了 {len(subtitle_segments)} 个字幕片段（精确同步）")
 
             # 6. 创建视频
             self.logger.info("步骤 6/7: 创建视频")
@@ -165,7 +188,8 @@ class VideoFactory:
                         images=image_paths,
                         audio_path=str(final_audio_path),
                         image_duration=self.config.get('templates.simple.image_duration', 5.0),
-                        transition=self.config.get('templates.simple.transition', 'fade')
+                        transition=self.config.get('templates.simple.transition', 'fade'),
+                        transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
                     )
                 else:
                     # 创建纯色背景视频

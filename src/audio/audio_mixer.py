@@ -118,34 +118,67 @@ class AudioMixer:
         self,
         audio_paths: list,
         output_path: str,
-        crossfade: float = 0.5
+        silence_duration: float = 0.0
     ) -> Path:
         """
-        拼接多个音频文件
+        拼接多个音频文件为一个完整音频
 
         Args:
             audio_paths: 音频文件路径列表
             output_path: 输出路径
-            crossfade: 交叉淡入淡出时长（秒）
+            silence_duration: 在片段间插入的静音时长（秒），默认0（无静音）
 
         Returns:
             输出文件路径
         """
+        if not audio_paths:
+            raise ValueError("音频文件列表不能为空")
+
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 单个文件直接复制
+        if len(audio_paths) == 1:
+            import shutil
+            shutil.copy(str(audio_paths[0]), str(output_path))
+            logger.info(f"单个音频文件，直接复制: {output_path}")
+            return output_path
+
         # 加载所有音频
-        clips = [AudioFileClip(str(path)) for path in audio_paths]
+        clips = []
+        for i, path in enumerate(audio_paths):
+            try:
+                clip = AudioFileClip(str(path))
+                clips.append(clip)
+            except Exception as e:
+                logger.error(f"加载音频文件 {path} 失败: {str(e)}")
+                raise
 
-        # 添加交叉淡入淡出
-        if crossfade > 0:
-            for i in range(len(clips)):
-                if i > 0:
-                    clips[i] = clips[i].audio_fadein(crossfade)
+        # 如果需要在片段间插入静音
+        if silence_duration > 0:
+            from moviepy.editor import AudioClip
+            import numpy as np
+
+            # 创建带静音的片段列表
+            clips_with_silence = []
+            for i, clip in enumerate(clips):
+                clips_with_silence.append(clip)
+
+                # 在非最后一个片段后添加静音
                 if i < len(clips) - 1:
-                    clips[i] = clips[i].audio_fadeout(crossfade)
+                    silence = AudioClip(
+                        lambda t: np.zeros(2) if clip.nchannels == 2 else np.array([0]),
+                        duration=silence_duration,
+                        fps=clip.fps
+                    )
+                    clips_with_silence.append(silence)
 
-        # 拼接
+            clips = clips_with_silence
+
+        # 拼接音频
         final_audio = concatenate_audioclips(clips)
 
         # 导出
@@ -155,6 +188,9 @@ class AudioMixer:
             bitrate='192k',
             logger=None
         )
+
+        total_duration = final_audio.duration
+        logger.info(f"拼接完成: {len(audio_paths)} 个音频片段 → {output_path} (总时长: {total_duration:.2f}秒)")
 
         # 清理
         for clip in clips:

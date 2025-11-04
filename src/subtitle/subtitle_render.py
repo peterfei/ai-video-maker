@@ -4,10 +4,13 @@
 """
 
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from moviepy.editor import TextClip, CompositeVideoClip
+import logging
+
+from .font_manager import FontManager
 
 
 class SubtitleRenderer:
@@ -22,7 +25,19 @@ class SubtitleRenderer:
         """
         self.config = config
         self.enabled = config.get('enabled', True)
-        self.font_name = config.get('font_name', 'Arial')
+
+        # 初始化日志
+        self.logger = logging.getLogger(__name__)
+
+        # 初始化字体管理器
+        self.font_manager = FontManager(logger=self.logger)
+
+        # 字体选择逻辑
+        self.font: Optional[Union[str, Path]] = None
+        self.font_name: Optional[str] = None
+        self._initialize_font(config)
+
+        # 其他配置
         self.font_size = config.get('font_size', 48)
         self.font_color = config.get('font_color', 'white')
         self.stroke_color = config.get('stroke_color', 'black')
@@ -30,6 +45,80 @@ class SubtitleRenderer:
         self.position = config.get('position', 'bottom')
         self.margin_bottom = config.get('margin_bottom', 100)
         self.align = config.get('align', 'center')
+
+    def _initialize_font(self, config: Dict[str, Any]) -> None:
+        """
+        初始化字体配置
+
+        Args:
+            config: 配置字典
+
+        Raises:
+            RuntimeError: 当无可用中文字体时
+        """
+        # 构建首选字体列表
+        preferred_fonts = []
+
+        # 1. 优先使用用户指定的字体文件路径
+        font_path = config.get('font_path')
+        if font_path:
+            font_path = Path(font_path)
+            if font_path.exists():
+                preferred_fonts.append(font_path)
+                self.logger.info(f"添加自定义字体路径: {font_path}")
+            else:
+                self.logger.warning(f"指定的字体文件不存在: {font_path}")
+
+        # 2. 添加配置中的字体回退列表
+        font_fallback = config.get('font_fallback', [])
+        if font_fallback:
+            preferred_fonts.extend(font_fallback)
+            self.logger.debug(f"添加字体回退列表: {len(font_fallback)} 个字体")
+
+        # 3. 向后兼容：支持旧的 font_name 配置
+        font_name = config.get('font_name')
+        if font_name and font_name not in preferred_fonts:
+            preferred_fonts.insert(0, font_name)
+            if font_name != 'Arial':  # Arial 是默认值，不需要警告
+                self.logger.info(f"使用配置的 font_name: {font_name}")
+
+        # 4. 添加平台默认中文字体
+        platform_fonts = self.font_manager.get_default_chinese_fonts_by_platform()
+        preferred_fonts.extend(platform_fonts)
+
+        # 5. 添加通用回退字体
+        universal_fallback = ['Arial Unicode MS', 'DejaVu Sans']
+        preferred_fonts.extend(universal_fallback)
+
+        # 选择最佳字体
+        self.logger.info(f"从 {len(preferred_fonts)} 个候选字体中选择最佳字体...")
+        best_font = self.font_manager.get_best_font(
+            preferred_fonts,
+            test_text="测试中文字幕"
+        )
+
+        if not best_font:
+            error_msg = (
+                "无法找到可用的中文字体。\n"
+                "解决方案：\n"
+                "1. 安装系统中文字体（如 Noto Sans CJK）\n"
+                "2. 下载字体文件到 assets/fonts/ 目录\n"
+                "3. 在配置文件中指定 font_path 或 font_fallback"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        # 设置字体
+        if isinstance(best_font, Path):
+            # 字体文件路径
+            self.font = str(best_font)
+            self.font_name = None
+            self.logger.info(f"✓ 使用字体文件: {best_font.name}")
+        else:
+            # 字体名称
+            self.font = best_font
+            self.font_name = best_font
+            self.logger.info(f"✓ 使用系统字体: {best_font}")
 
     def create_text_clips(
         self,
@@ -52,28 +141,37 @@ class SubtitleRenderer:
         text_clips = []
 
         for segment in subtitle_segments:
-            # 创建文本片段
-            txt_clip = TextClip(
-                segment.text,
-                fontsize=self.font_size,
-                font=self.font_name,
-                color=self.font_color,
-                stroke_color=self.stroke_color,
-                stroke_width=self.stroke_width,
-                method='caption',
-                size=(video_size[0] * 0.9, None),  # 宽度为视频的90%
-                align=self.align
-            )
+            try:
+                # 创建文本片段 - 使用检测到的字体
+                txt_clip = TextClip(
+                    segment.text,
+                    fontsize=self.font_size,
+                    font=self.font,  # 使用经过验证的字体
+                    color=self.font_color,
+                    stroke_color=self.stroke_color,
+                    stroke_width=self.stroke_width,
+                    method='caption',
+                    size=(video_size[0] * 0.9, None),  # 宽度为视频的90%
+                    align=self.align
+                )
 
-            # 设置显示时间
-            txt_clip = txt_clip.set_start(segment.start_time)
-            txt_clip = txt_clip.set_duration(segment.duration)
+                # 设置显示时间
+                txt_clip = txt_clip.set_start(segment.start_time)
+                txt_clip = txt_clip.set_duration(segment.duration)
 
-            # 设置位置
-            pos = self._calculate_position(txt_clip.size, video_size)
-            txt_clip = txt_clip.set_position(pos)
+                # 设置位置
+                pos = self._calculate_position(txt_clip.size, video_size)
+                txt_clip = txt_clip.set_position(pos)
 
-            text_clips.append(txt_clip)
+                text_clips.append(txt_clip)
+
+            except Exception as e:
+                self.logger.error(
+                    f"创建字幕片段失败 (索引 {segment.index}): {segment.text[:20]}..."
+                )
+                self.logger.error(f"错误详情: {str(e)}")
+                # 继续处理下一个字幕，不中断整个流程
+                continue
 
         return text_clips
 
@@ -163,14 +261,27 @@ class SubtitleRenderer:
         draw = ImageDraw.Draw(img)
 
         # 加载字体
-        try:
-            if font_path and Path(font_path).exists():
+        font = None
+
+        # 1. 优先使用传入的字体路径
+        if font_path and Path(font_path).exists():
+            try:
                 font = ImageFont.truetype(font_path, self.font_size)
-            else:
-                # 尝试使用系统字体
-                font = ImageFont.truetype(self.font_name, self.font_size)
-        except Exception:
-            # 使用默认字体
+                self.logger.debug(f"使用传入的字体路径: {font_path}")
+            except Exception as e:
+                self.logger.warning(f"加载字体失败 ({font_path}): {e}")
+
+        # 2. 使用初始化时选择的字体
+        if font is None and self.font:
+            try:
+                font = ImageFont.truetype(str(self.font), self.font_size)
+                self.logger.debug(f"使用初始化字体: {self.font}")
+            except Exception as e:
+                self.logger.warning(f"加载初始化字体失败: {e}")
+
+        # 3. 回退到默认字体（仅作为最后手段）
+        if font is None:
+            self.logger.warning("使用默认字体 - 可能不支持中文")
             font = ImageFont.load_default()
 
         # 计算文本位置
