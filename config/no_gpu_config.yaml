@@ -81,8 +81,9 @@ export:
   quality: high
 music:
   # 基础音乐设置
-  default_track: assets/music/default.mp3
-  enabled: false                       # 暂时禁用音乐功能
+  default_track: assets/music/piano.mp3
+  enabled: false                       # 禁用智能音乐库
+  basic_enabled: true                  # 启用基础背景音乐
   fade_in: 2.0
   fade_out: 3.0
   loop: true
@@ -91,6 +92,7 @@ music:
   # 智能音乐选择设置
   auto_select: false                   # 禁用智能音乐选择
   copyright_only: true                 # 只使用无版权音乐
+  enabled: false                       # 禁用智能音乐库
 
   # OpenAI配置
   openai:

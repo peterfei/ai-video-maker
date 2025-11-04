@@ -177,7 +177,7 @@ class VideoFactory:
 
             # 4. 添加背景音乐
             self.logger.info("步骤 4/7: 添加背景音乐")
-            if self.config.get('music.enabled', True):
+            if self.config.get('music.basic_enabled', True):
                 music_path = self.config.get('music.default_track')
                 if music_path and Path(music_path).exists():
                     final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
@@ -435,7 +435,7 @@ class VideoFactory:
                 self.logger.info("智能背景音乐已混合")
             else:
                 # 使用默认背景音乐或纯语音
-                if self.config.get('music.enabled', True):
+                if self.config.get('music.basic_enabled', True):
                     default_music = self.config.get('music.default_track')
                     if default_music and Path(default_music).exists():
                         final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"

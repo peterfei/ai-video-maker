@@ -58,6 +58,7 @@ class AudioMixer:
 
         # 混合音频
         final_audio = CompositeAudioClip([voice, music])
+        final_audio.fps = voice.fps  # 设置fps属性
 
         # 导出
         final_audio.write_audiofile(
