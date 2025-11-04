@@ -121,7 +121,14 @@ class VideoFactory:
 
             # 2. 加载素材
             self.logger.info("步骤 2/7: 加载素材")
-            if self.auto_material_enabled:
+            if materials_dir:
+                # 优先使用指定的素材目录
+                materials = self.material_source.load_materials(materials_dir)
+                self.logger.info(f"从指定目录 {materials_dir} 加载了 {len(materials)} 个素材")
+                # 记录前几个素材路径用于调试
+                for i, material in enumerate(materials[:3]):
+                    self.logger.debug(f"  素材 {i+1}: {material.path}")
+            elif self.auto_material_enabled:
                 # 使用自动素材管理器
                 self.logger.info("使用自动素材管理器获取素材")
                 material_paths = self.auto_material_manager.get_materials_for_script(
@@ -131,9 +138,6 @@ class VideoFactory:
                 # 转换路径为Material对象列表
                 materials = [{'path': p} for p in material_paths] if material_paths else []
                 self.logger.info(f"自动获取了 {len(materials)} 个素材")
-            elif materials_dir:
-                materials = self.material_source.load_materials(materials_dir)
-                self.logger.info(f"加载了 {len(materials)} 个素材")
             else:
                 materials = []
                 self.logger.info("未提供素材目录，将生成纯背景视频")
@@ -206,8 +210,19 @@ class VideoFactory:
                 if isinstance(materials[0], dict) and 'path' in materials[0]:
                     # 来自自动素材管理器的路径列表
                     image_paths = [m['path'] for m in materials]
+                elif hasattr(materials[0], 'path'):
+                    # 直接使用从指定目录加载的Material对象
+                    # 按脚本片段数量选择素材，或使用全部可用素材
+                    material_count = max(len(script_segments), len(materials))
+                    if len(materials) >= material_count:
+                        selected_materials = materials[:material_count]
+                    else:
+                        # 如果素材不足，循环重复使用
+                        selected_materials = (materials * (material_count // len(materials) + 1))[:material_count]
+                    image_paths = [m.path for m in selected_materials]
+                    self.logger.info(f"使用指定目录的 {len(selected_materials)} 个素材")
                 else:
-                    # 来自material_source的Material对象
+                    # 降级方案：来自material_source的Material对象
                     selected_materials = self.material_source.select_materials(
                         count=max(5, len(script_segments)),
                         material_type='image'
@@ -357,7 +372,11 @@ class VideoFactory:
 
             # 3. 加载素材
             self.logger.info("步骤 3/8: 加载素材")
-            if self.auto_material_enabled:
+            if materials_dir:
+                # 优先使用指定的素材目录
+                materials = self.material_source.load_materials(materials_dir)
+                self.logger.info(f"从指定目录 {materials_dir} 加载了 {len(materials)} 个素材")
+            elif self.auto_material_enabled:
                 # 使用自动素材管理器
                 self.logger.info("使用自动素材管理器获取素材")
                 material_paths = self.auto_material_manager.get_materials_for_script(
@@ -366,9 +385,6 @@ class VideoFactory:
                 )
                 materials = [{'path': p} for p in material_paths] if material_paths else []
                 self.logger.info(f"自动获取了 {len(materials)} 个素材")
-            elif materials_dir:
-                materials = self.material_source.load_materials(materials_dir)
-                self.logger.info(f"加载了 {len(materials)} 个素材")
             else:
                 materials = []
                 self.logger.info("未提供素材目录，将生成纯背景视频")

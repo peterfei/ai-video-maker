@@ -423,17 +423,57 @@ class GPUEffectsProcessor:
         Returns:
             合成后的视频片段
         """
-        from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+        from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, ColorClip
 
         if not images:
             raise ValueError("No images provided")
 
+        # 获取音频时长以动态调整图片时长
+        audio_duration = None
+        if audio_path:
+            try:
+                audio_clip = AudioFileClip(audio_path)
+                audio_duration = audio_clip.duration
+                self.logger.info(f"音频时长: {audio_duration:.2f}秒")
+            except Exception as e:
+                self.logger.warning(f"无法获取音频时长: {e}")
+
+        # 计算每张图片的实际持续时间
+        if audio_duration and len(images) > 1 and transition == "fade":
+            # 更精确的时长计算
+            n = len(images)
+            # 总转场时间 = (n-1) * transition_duration
+            total_transition_time = (n - 1) * transition_duration
+            # 有效显示时间 = 音频时长 - 转场重叠时间
+            effective_display_time = audio_duration - total_transition_time
+            if effective_display_time > 0:
+                adjusted_image_duration = effective_display_time / n
+                self.logger.info(f"精确计算图片时长: {adjusted_image_duration:.2f}秒 (考虑{n}张图片和{total_transition_time:.2f}秒转场)")
+            else:
+                # 如果转场时间过长，使用最小图片时长
+                adjusted_image_duration = max(1.0, audio_duration / n / 2)
+                self.logger.warning(f"转场时间过长，使用最小图片时长: {adjusted_image_duration:.2f}秒")
+        elif audio_duration:
+            # 无转场，平均分配时间
+            adjusted_image_duration = audio_duration / len(images)
+            self.logger.info(f"平均分配图片时长: {adjusted_image_duration:.2f}秒")
+        else:
+            adjusted_image_duration = image_duration
+            self.logger.info(f"使用默认图片时长: {adjusted_image_duration:.2f}秒")
+
         # 创建图片片段
         image_clips = []
+        # 使用标准1080p分辨率，避免异常大的图片导致渲染问题
+        target_resolution = (1920, 1080)
+        
         for img_path in images:
             # 确保路径是字符串
             img_path_str = str(img_path) if not isinstance(img_path, str) else img_path
-            img_clip = ImageClip(img_path_str, duration=image_duration)
+            img_clip = ImageClip(img_path_str, duration=adjusted_image_duration)
+            
+            # 调整到目标分辨率
+            img_clip = img_clip.resize(target_resolution)
+            
             image_clips.append(img_clip)
 
         # 应用转场效果
@@ -454,11 +494,33 @@ class GPUEffectsProcessor:
             # 无转场，直接拼接
             video_clip = concatenate_videoclips(image_clips)
 
+        # 微调视频时长以精确匹配音频
+        if audio_duration and abs(video_clip.duration - audio_duration) > 0.1:
+            if video_clip.duration > audio_duration:
+                # 裁剪视频
+                self.logger.info(f"裁剪视频: {video_clip.duration:.2f}秒 -> {audio_duration:.2f}秒")
+                video_clip = video_clip.subclip(0, audio_duration)
+            else:
+                # 延长最后一帧
+                extension_duration = audio_duration - video_clip.duration
+                self.logger.info(f"延长视频: 添加{extension_duration:.2f}秒黑屏")
+                extension = ColorClip(
+                    size=video_clip.size,
+                    color=[0, 0, 0],
+                    duration=extension_duration
+                )
+                video_clip = concatenate_videoclips([video_clip, extension])
+
         # 添加音频
         if audio_path:
             try:
-                audio_clip = AudioFileClip(audio_path)
-                video_clip = video_clip.set_audio(audio_clip)
+                if audio_duration:
+                    # 重用已加载的音频
+                    video_clip = video_clip.set_audio(audio_clip)
+                else:
+                    # 重新加载
+                    audio_clip = AudioFileClip(audio_path)
+                    video_clip = video_clip.set_audio(audio_clip)
             except Exception as e:
                 self.logger.warning(f"Failed to load audio: {e}")
 

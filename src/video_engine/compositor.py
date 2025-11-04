@@ -10,6 +10,9 @@ from moviepy.editor import (
     concatenate_videoclips, ColorClip
 )
 import numpy as np
+import platform
+import subprocess
+import re
 
 
 class VideoCompositor:
@@ -28,6 +31,21 @@ class VideoCompositor:
         self.codec = config.get('codec', 'libx264')
         self.bitrate = config.get('bitrate', '5000k')
         self.background_color = config.get('background_color', [0, 0, 0])
+
+        # Check hardware codec availability
+        self._videotoolbox_available = self._check_videotoolbox_support()
+
+    def _check_videotoolbox_support(self) -> bool:
+        """Check if VideoToolbox hardware encoding is available"""
+        if platform.system() != 'Darwin':
+            return False
+
+        try:
+            # Check if FFmpeg was compiled with VideoToolbox support
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10)
+            return 'h264_videotoolbox' in result.stdout
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            return False
 
     def create_slideshow(
         self,
@@ -276,7 +294,7 @@ class VideoCompositor:
         preset: str = "medium"
     ) -> Path:
         """
-        渲染并导出视频
+        渲染并导出视频，支持硬件编码失败时的软件编码回退
 
         Args:
             video_clip: 视频片段
@@ -286,25 +304,169 @@ class VideoCompositor:
         Returns:
             输出文件路径
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 导出视频
-        video_clip.write_videofile(
-            str(output_path),
-            fps=self.fps,
-            codec=self.codec,
-            bitrate=self.bitrate,
-            preset=preset,
-            audio_codec='aac',
-            logger=None,
-            threads=4
-        )
+        # 检测是否使用硬件编码器
+        is_hardware_codec = self._is_hardware_codec_available(self.codec)
+
+        # 尝试硬件编码，如果失败则回退到软件编码
+        encoding_attempts = []
+
+        if is_hardware_codec:
+            # 硬件编码尝试
+            encoding_attempts.append({
+                'codec': self.codec,
+                'description': f'hardware encoding ({self.codec})',
+                'ffmpeg_params': self._get_hardware_encoding_params(self.codec)
+            })
+            # 软件编码回退
+            encoding_attempts.append({
+                'codec': 'libx264',
+                'description': 'software encoding (libx264)',
+                'ffmpeg_params': ['-preset', preset]
+            })
+        else:
+            # 软件编码
+            encoding_attempts.append({
+                'codec': self.codec,
+                'description': f'software encoding ({self.codec})',
+                'ffmpeg_params': ['-preset', preset]
+            })
+
+        last_error = None
+
+        for i, attempt in enumerate(encoding_attempts):
+            try:
+                logger.info(f"尝试使用 {attempt['description']} 导出视频: {output_path.name}")
+
+                # 构建ffmpeg参数 (仅用于日志)
+                ffmpeg_params = attempt.get('ffmpeg_params', [])
+                logger.debug(f"FFmpeg参数: {' '.join(ffmpeg_params)}")
+
+                # 导出视频
+                video_clip.write_videofile(
+                    str(output_path),
+                    fps=self.fps,
+                    codec=attempt['codec'],
+                    audio_codec='aac',
+                    bitrate=self.bitrate,
+                    ffmpeg_params=ffmpeg_params,
+                    logger=None,
+                    threads=4 if attempt['codec'] == 'libx264' else 1,  # Limit threads for hardware codecs
+                    write_logfile=False,  # Disable FFmpeg log file to prevent pipe issues
+                    verbose=False
+                )
+
+                logger.info(f"✓ 视频导出成功: {output_path}")
+                logger.info(f"  编码器: {attempt['codec']}")
+
+                # 检查文件大小
+                if output_path.exists():
+                    file_size = output_path.stat().st_size / (1024 * 1024)
+                    logger.info(f"  文件大小: {file_size:.2f} MB")
+
+                break
+
+            except (Exception, OSError, SystemError, RuntimeError) as e:
+                error_msg = str(e)
+                # Check for specific VideoToolbox errors
+                if 'h264_videotoolbox' in attempt['codec'] and ('-1290' in error_msg or 'cannot prepare encoder' in error_msg):
+                    logger.warning("VideoToolbox encoder initialization failed - likely codec not available")
+                elif 'Broken pipe' in error_msg:
+                    logger.warning("Broken pipe error - likely FFmpeg process terminated unexpectedly")
+
+                logger.warning(f"✗ {attempt['description']} 失败: {error_msg[:200]}")
+                last_error = e
+
+                # 如果不是最后一次尝试，继续下一个
+                if i < len(encoding_attempts) - 1:
+                    logger.info("尝试下一个编码器...")
+                    # 删除失败的输出文件
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except:
+                            pass
+                    continue
+                else:
+                    # 最后一次尝试也失败了
+                    logger.error("所有编码尝试都失败了")
+                    raise last_error
 
         # 清理
-        video_clip.close()
+        try:
+            video_clip.close()
+        except:
+            pass
 
         return output_path
+
+    def _is_hardware_codec_available(self, codec: str) -> bool:
+        """Check if hardware codec is available"""
+        if codec == 'h264_videotoolbox':
+            return self._videotoolbox_available
+        elif codec == 'h264_nvenc':
+            return self._check_nvenc_support()
+        elif codec == 'h264_qsv':
+            return self._check_qsv_support()
+        return False
+
+    def _check_nvenc_support(self) -> bool:
+        """Check NVIDIA NVENC availability"""
+        try:
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10)
+            return 'h264_nvenc' in result.stdout
+        except:
+            return False
+
+    def _check_qsv_support(self) -> bool:
+        """Check Intel QSV availability"""
+        try:
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10)
+            return 'h264_qsv' in result.stdout
+        except:
+            return False
+
+    def _get_hardware_encoding_params(self, codec: str) -> list:
+        """
+        获取硬件编码器的FFmpeg参数
+
+        Args:
+            codec: 编码器名称
+
+        Returns:
+            FFmpeg参数列表
+        """
+        if codec == 'h264_videotoolbox':
+            # VideoToolbox 硬件编码器参数（保守配置以避免-1290和segfault）
+            return [
+                '-allow_sw', '1',  # 允许软件回退
+                '-pix_fmt', 'yuv420p',
+                '-movflags', '+faststart',  # 优化progressive下载
+                '-max_muxing_queue_size', '1024'  # 增加mux队列避免管道问题
+            ]
+        elif codec == 'h264_nvenc':
+            # NVIDIA NVENC 硬件编码器参数
+            return [
+                '-preset', 'p4',  # NVENC preset (p1-p7)
+                '-profile:v', 'high',
+                '-level', '4.0',
+                '-pix_fmt', 'yuv420p'
+            ]
+        elif codec == 'h264_qsv':
+            # Intel Quick Sync Video 硬件编码器参数
+            return [
+                '-preset', 'medium',
+                '-profile:v', 'high',
+                '-level', '4.0',
+                '-pix_fmt', 'yuv420p'
+            ]
+        else:
+            return []
 
     def create_picture_in_picture(
         self,

@@ -502,14 +502,41 @@ class SubtitleRenderer:
                     effect
                 )
             else:
-                txt_clip = TextClip(
-                    segment.text,
-                    fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
-                    font=self.font,
-                    color=self.font_color,
-                    stroke_color=self.stroke_color,
-                    stroke_width=self.stroke_width
-                )
+                # 清理字幕文本
+                text = self._clean_subtitle_text(segment.text)
+                
+                try:
+                    # 使用与 create_text_clips() 一致的参数
+                    txt_clip = TextClip(
+                        text,
+                        fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
+                        font=self.font,
+                        color=self.font_color,
+                        stroke_color=self.stroke_color,
+                        stroke_width=self.stroke_width,
+                        method='label',
+                        size=(video_clip.size[0] * 0.9, None),
+                        align=self.align
+                    )
+                except Exception as e:
+                    # 如果label方法失败，尝试caption方法
+                    self.logger.warning(f"使用label方法创建字幕失败，尝试caption方法: {text[:20]}... ({e})")
+                    try:
+                        txt_clip = TextClip(
+                            text,
+                            fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
+                            font=self.font,
+                            color=self.font_color,
+                            stroke_color=self.stroke_color,
+                            stroke_width=self.stroke_width,
+                            method='caption',
+                            size=(video_clip.size[0] * 0.9, None),
+                            align=self.align
+                        )
+                    except Exception as e2:
+                        # 如果都失败了，跳过这个字幕
+                        self.logger.error(f"字幕创建完全失败，跳过: {text[:30]}... (label: {e}, caption: {e2})")
+                        continue
 
             txt_clip = txt_clip.set_start(segment.start_time)
             txt_clip = txt_clip.set_duration(segment.duration)
