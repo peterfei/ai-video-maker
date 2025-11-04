@@ -11,6 +11,7 @@ from moviepy.editor import TextClip, CompositeVideoClip
 import logging
 
 from .font_manager import FontManager
+from .font_size_manager import FontSizeManager
 
 
 class SubtitleRenderer:
@@ -32,13 +33,31 @@ class SubtitleRenderer:
         # 初始化字体管理器
         self.font_manager = FontManager(logger=self.logger)
 
+        # 初始化字体大小管理器
+        self.font_size_manager = FontSizeManager(logger=self.logger)
+
         # 字体选择逻辑
         self.font: Optional[Union[str, Path]] = None
         self.font_name: Optional[str] = None
         self._initialize_font(config)
 
+        # 获取视频分辨率用于字体大小标准化
+        video_width = config.get('video_width', 1920)
+        video_height = config.get('video_height', 1080)
+        video_resolution = (video_width, video_height)
+
+        # 标准化字体大小
+        base_font_size = config.get('font_size', 48)
+        self.font_sizes = self.font_size_manager.normalize_font_size(
+            base_font_size,
+            video_resolution,
+            config
+        )
+
+        # 为向后兼容保留原有属性 (使用MoviePy大小)
+        self.font_size = self.font_sizes['moviepy_size']
+
         # 其他配置
-        self.font_size = config.get('font_size', 48)
         self.font_color = config.get('font_color', 'white')
         self.stroke_color = config.get('stroke_color', 'black')
         self.stroke_width = config.get('stroke_width', 2)
@@ -156,7 +175,7 @@ class SubtitleRenderer:
                 try:
                     txt_clip = TextClip(
                         text,
-                        fontsize=self.font_size,
+                        fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
                         font=self.font,  # 使用字体路径
                         color=self.font_color,
                         stroke_color=self.stroke_color,
@@ -171,7 +190,7 @@ class SubtitleRenderer:
                     try:
                         txt_clip = TextClip(
                             text,
-                            fontsize=self.font_size,
+                            fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
                             font=self.font,  # 使用字体路径
                             color=self.font_color,
                             stroke_color=self.stroke_color,
@@ -342,7 +361,7 @@ class SubtitleRenderer:
         # 1. 优先使用传入的字体路径
         if font_path and Path(font_path).exists():
             try:
-                font = ImageFont.truetype(font_path, self.font_size)
+                font = ImageFont.truetype(font_path, self.font_sizes['pil_size'])  # 使用PIL标准化大小
                 self.logger.debug(f"使用传入的字体路径: {font_path}")
             except Exception as e:
                 self.logger.warning(f"加载字体失败 ({font_path}): {e}")
@@ -350,7 +369,7 @@ class SubtitleRenderer:
         # 2. 使用初始化时选择的字体
         if font is None and self.font:
             try:
-                font = ImageFont.truetype(str(self.font), self.font_size)
+                font = ImageFont.truetype(str(self.font), self.font_sizes['pil_size'])  # 使用PIL标准化大小
                 self.logger.debug(f"使用初始化字体: {self.font}")
             except Exception as e:
                 self.logger.warning(f"加载初始化字体失败: {e}")
@@ -411,7 +430,7 @@ class SubtitleRenderer:
         # 创建基础文本片段
         txt_clip = TextClip(
             text,
-            fontsize=self.font_size,
+            fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
             font=self.font,
             color=self.font_color,
             stroke_color=self.stroke_color,
@@ -485,7 +504,7 @@ class SubtitleRenderer:
             else:
                 txt_clip = TextClip(
                     segment.text,
-                    fontsize=self.font_size,
+                    fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
                     font=self.font,
                     color=self.font_color,
                     stroke_color=self.stroke_color,

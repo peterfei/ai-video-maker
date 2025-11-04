@@ -17,6 +17,37 @@ batch:
   retry_on_error: true
   retry_times: 3
   save_logs: true
+performance:
+  # 多线程设置
+  threading:
+    enabled: true
+    max_workers: auto              # auto, 或指定数字
+    max_concurrent_tasks: 4        # 最大并发任务数
+    task_timeout: 3600            # 单个任务超时时间(秒)
+    worker_memory_limit: 2048     # 每个工作线程内存限制(MB)
+    retry_on_error: true
+    retry_times: 3
+    save_logs: true
+
+  # GPU加速设置
+  gpu:
+    enabled: true
+    device: auto                  # auto, cuda:0, cpu
+    memory_limit: 0.8             # GPU内存使用比例 (0.0-1.0)
+    min_gpu_memory: 2147483648   # 最小GPU内存要求(2GB)
+    max_batch_size: 16            # 最大批处理大小
+
+    # GPU特效设置
+    effects:
+      enabled: true
+      precision: fp16             # fp16, fp32
+      cache_frames: true          # 是否缓存帧数据
+
+  # 性能监控
+  monitoring:
+    enable_metrics: true
+    log_performance: true
+    profile_tasks: false
 content_sources:
   ai:
     api_key: ${OPENAI_API_KEY}
@@ -105,6 +136,10 @@ subtitle:
   font_name: STHeiti Medium
   font_path: null
   font_size: 48
+  adaptive_font_size: true  # 是否启用自适应字体大小
+  min_font_size: 24         # 最小字体大小
+  max_font_size: 72         # 最大字体大小
+  font_size_scale_factor: 0.02  # 相对于视频宽度的缩放因子
   margin_bottom: 100
   max_chars_per_line: 25
   min_confidence_threshold: 0.3
