@@ -375,3 +375,213 @@ class FontManager:
             self.logger.debug(f"获取字体信息时出错: {e}")
 
         return info
+
+    def add_custom_font(self, font_path: str, target_dir: Optional[str] = None) -> bool:
+        """
+        添加自定义字体到字体库
+
+        Args:
+            font_path: 源字体文件路径
+            target_dir: 目标目录，如果为None则使用默认字体目录
+
+        Returns:
+            True 如果添加成功，否则 False
+        """
+        try:
+            source_path = Path(font_path)
+            if not source_path.exists():
+                self.logger.error(f"源字体文件不存在: {font_path}")
+                return False
+
+            # 验证字体文件格式
+            if source_path.suffix.lower() not in ['.ttf', '.otf', '.woff', '.woff2']:
+                self.logger.error(f"不支持的字体格式: {source_path.suffix}")
+                return False
+
+            # 确定目标目录
+            if target_dir:
+                target_dir_path = Path(target_dir)
+            else:
+                # 使用默认字体目录
+                target_dir_path = Path("assets/fonts")
+
+            target_dir_path.mkdir(parents=True, exist_ok=True)
+
+            # 复制字体文件
+            target_path = target_dir_path / source_path.name
+            import shutil
+            shutil.copy2(source_path, target_path)
+
+            # 验证复制的字体
+            if self.validate_font(target_path):
+                self.logger.info(f"✓ 自定义字体添加成功: {target_path}")
+
+                # 清除缓存，让下次检测时包含新字体
+                self._system_fonts_cache = None
+                self._chinese_fonts_cache = None
+
+                return True
+            else:
+                # 删除无效的字体文件
+                target_path.unlink()
+                self.logger.error(f"复制的字体文件无效，已删除: {target_path}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"添加自定义字体失败: {e}")
+            return False
+
+    def preview_font(self, font_spec: Union[str, Path], text: str = "测试中文字幕预览", size: int = 48) -> Optional[str]:
+        """
+        生成字体预览图片并返回图片路径
+
+        Args:
+            font_spec: 字体名称或路径
+            text: 预览文本
+            size: 字体大小
+
+        Returns:
+            预览图片路径，如果生成失败返回 None
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            # 验证字体
+            if not self.validate_font(font_spec, text):
+                self.logger.error(f"字体不支持预览文本: {font_spec}")
+                return None
+
+            # 创建预览图片
+            img = Image.new('RGB', (800, 200), color='white')
+            draw = ImageDraw.Draw(img)
+
+            # 加载字体
+            if isinstance(font_spec, Path) or (isinstance(font_spec, str) and '/' in font_spec):
+                font_path = Path(font_spec)
+                font = ImageFont.truetype(str(font_path), size)
+            else:
+                font_path = self.get_font_path(str(font_spec))
+                if font_path:
+                    font = ImageFont.truetype(str(font_path), size)
+                else:
+                    self.logger.error(f"无法获取字体路径: {font_spec}")
+                    return None
+
+            # 绘制文本
+            draw.text((20, 20), text, font=font, fill='black')
+
+            # 添加信息文字
+            info_text = f"字体: {Path(font_spec).name if '/' in str(font_spec) else str(font_spec)} | 大小: {size}px"
+            small_font = ImageFont.load_default()
+            draw.text((20, 150), info_text, font=small_font, fill='gray')
+
+            # 保存预览图片
+            import uuid
+            preview_dir = Path("output/font_previews")
+            preview_dir.mkdir(parents=True, exist_ok=True)
+
+            preview_path = preview_dir / f"font_preview_{uuid.uuid4().hex[:8]}.png"
+            img.save(preview_path)
+
+            self.logger.info(f"字体预览生成: {preview_path}")
+            return str(preview_path)
+
+        except Exception as e:
+            self.logger.error(f"生成字体预览失败: {e}")
+            return None
+
+    def test_font_compatibility(self, font_spec: Union[str, Path]) -> Dict[str, bool]:
+        """
+        测试字体的兼容性
+
+        Args:
+            font_spec: 字体名称或路径
+
+        Returns:
+            兼容性测试结果字典
+        """
+        results = {
+            'exists': False,
+            'supports_basic_latin': False,
+            'supports_chinese': False,
+            'supports_japanese': False,
+            'supports_korean': False,
+            'moviepy_compatible': False,
+            'pil_compatible': False
+        }
+
+        try:
+            # 检查字体是否存在
+            if isinstance(font_spec, Path) or (isinstance(font_spec, str) and '/' in str(font_spec)):
+                results['exists'] = Path(font_spec).exists()
+            else:
+                results['exists'] = self.font_exists(str(font_spec))
+
+            if not results['exists']:
+                return results
+
+            # 测试不同语言字符
+            test_texts = {
+                'basic_latin': 'Hello World 123',
+                'chinese': '你好世界测试中文',
+                'japanese': 'こんにちは世界',
+                'korean': '안녕하세요 세계'
+            }
+
+            for lang, text in test_texts.items():
+                try:
+                    results[f'supports_{lang.split("_")[0] if "_" in lang else lang}'] = self.validate_font(font_spec, text)
+                except:
+                    results[f'supports_{lang.split("_")[0] if "_" in lang else lang}'] = False
+
+            # 测试 MoviePy 兼容性
+            try:
+                from moviepy.editor import TextClip
+                clip = TextClip("Test", font=str(font_spec), fontsize=30)
+                results['moviepy_compatible'] = True
+                clip.close()
+            except:
+                results['moviepy_compatible'] = False
+
+            # 测试 PIL 兼容性
+            results['pil_compatible'] = self.validate_font(font_spec)
+
+        except Exception as e:
+            self.logger.debug(f"测试字体兼容性时出错: {e}")
+
+        return results
+
+    def get_available_fonts_info(self) -> List[Dict[str, any]]:
+        """
+        获取所有可用字体的详细信息
+
+        Returns:
+            字体信息列表
+        """
+        fonts_info = []
+
+        try:
+            # 获取系统字体
+            system_fonts = self.detect_system_fonts()
+            for font in system_fonts:
+                info = self.get_font_info(font['name'])
+                info['source'] = 'system'
+                fonts_info.append(info)
+
+            # 获取项目字体目录中的字体
+            assets_fonts_dir = Path("assets/fonts")
+            if assets_fonts_dir.exists():
+                for font_file in assets_fonts_dir.glob("*.ttf"):
+                    info = self.get_font_info(font_file)
+                    info['source'] = 'assets'
+                    fonts_info.append(info)
+
+                for font_file in assets_fonts_dir.glob("*.otf"):
+                    info = self.get_font_info(font_file)
+                    info['source'] = 'assets'
+                    fonts_info.append(info)
+
+        except Exception as e:
+            self.logger.error(f"获取可用字体信息时出错: {e}")
+
+        return fonts_info

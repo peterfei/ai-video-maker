@@ -456,11 +456,20 @@ def main():
     parser.add_argument('--config', '-c', type=str, default='config/default_config.yaml',
                          help='配置文件路径')
     parser.add_argument('--batch', '-b', type=str, help='批量处理：脚本目录路径')
+    parser.add_argument('--font-manager', action='store_true', help='启动字体管理器界面')
+    parser.add_argument('--add-font', type=str, help='添加自定义字体文件')
+    parser.add_argument('--preview-font', type=str, help='预览字体效果')
+    parser.add_argument('--list-fonts', action='store_true', help='列出所有可用字体')
 
     args = parser.parse_args()
 
     # 创建视频工厂
     factory = VideoFactory(args.config)
+
+    # 处理字体管理命令
+    if args.font_manager or args.add_font or args.preview_font or args.list_fonts:
+        handle_font_commands(factory, args)
+        return
 
     if args.batch:
         # 批量处理模式
@@ -571,6 +580,152 @@ def batch_process(factory: VideoFactory, scripts_dir: str):
     print(f"  失败: {stats['failed']}")
     print(f"  耗时: {stats.get('duration_seconds', 0):.2f}秒")
 
+
+def handle_font_commands(factory: VideoFactory, args):
+    """
+    处理字体管理相关命令
+
+    Args:
+        factory: VideoFactory实例
+        args: 命令行参数
+    """
+    font_manager = factory.subtitle_renderer.font_manager
+
+    if args.list_fonts:
+        # 列出所有可用字体
+        print("🔤 可用字体列表:")
+        print("=" * 60)
+
+        try:
+            fonts_info = font_manager.get_available_fonts_info()
+            chinese_fonts = [f for f in fonts_info if f.get('supports_chinese', False)]
+
+            if chinese_fonts:
+                count = len(chinese_fonts)
+                print("📝 支持中文的字体 ({} 个):".format(count))
+                for i, font in enumerate(chinese_fonts[:20], 1):  # 显示前20个
+                    status = "✓" if font['exists'] else "✗"
+                    source = font.get('source', 'unknown')
+                    print("  {:2d}. {} {} [{}]".format(i, status, font['name'], source))
+            else:
+                print("❌ 未找到支持中文的字体")
+
+            total_fonts = len(fonts_info)
+            chinese_count = len(chinese_fonts)
+            print("\n📊 总计: {} 个字体，其中 {} 个支持中文".format(total_fonts, chinese_count))
+
+        except Exception as e:
+            print("❌ 获取字体信息失败: {}".format(str(e)))
+
+    elif args.add_font:
+        # 添加自定义字体
+        print("📥 添加自定义字体: {}".format(args.add_font))
+
+        try:
+            if font_manager.add_custom_font(args.add_font):
+                print("✅ 字体添加成功！")
+            else:
+                print("❌ 字体添加失败")
+                sys.exit(1)
+        except Exception as e:
+            print("❌ 字体添加出错: {}".format(str(e)))
+            sys.exit(1)
+
+    elif args.preview_font:
+        # 预览字体
+        print("👁️ 预览字体: {}".format(args.preview_font))
+
+        try:
+            preview_path = font_manager.preview_font(args.preview_font)
+            if preview_path:
+                print("✅ 预览图片生成: {}".format(preview_path))
+                print("💡 提示: 预览图片已保存，可手动查看")
+            else:
+                print("❌ 字体预览生成失败")
+                sys.exit(1)
+        except Exception as e:
+            print("❌ 字体预览出错: {}".format(str(e)))
+            sys.exit(1)
+
+    elif args.font_manager:
+        # 启动字体管理器界面
+        print("🎨 字体管理器")
+        print("=" * 40)
+
+        try:
+            while True:
+                print("\n选择操作:")
+                print("1. 列出所有字体")
+                print("2. 添加自定义字体")
+                print("3. 预览字体")
+                print("4. 测试字体兼容性")
+                print("5. 退出")
+
+                choice = input("\n请选择 (1-5): ").strip()
+
+                if choice == '1':
+                    # 列出字体
+                    fonts_info = font_manager.get_available_fonts_info()
+                    chinese_fonts = [f for f in fonts_info if f.get('supports_chinese', False)]
+
+                    count = len(chinese_fonts)
+                    print("\n支持中文的字体 ({} 个):".format(count))
+                    for i, font in enumerate(chinese_fonts[:10], 1):
+                        status = "✓" if font['exists'] else "✗"
+                        source = font.get('source', 'unknown')
+                        print("  {:2d}. {} {} [{}]".format(i, status, font['name'], source))
+
+                    if len(chinese_fonts) > 10:
+                        remaining = len(chinese_fonts) - 10
+                        print("  ... 还有 {} 个字体".format(remaining))
+
+                elif choice == '2':
+                    # 添加字体
+                    font_path = input("输入字体文件路径: ").strip()
+                    if font_path:
+                        if font_manager.add_custom_font(font_path):
+                            print("✅ 字体添加成功！")
+                        else:
+                            print("❌ 字体添加失败")
+                    else:
+                        print("❌ 字体路径不能为空")
+
+                elif choice == '3':
+                    # 预览字体
+                    font_name = input("输入字体名称或路径: ").strip()
+                    if font_name:
+                        preview_path = font_manager.preview_font(font_name)
+                        if preview_path:
+                            print("✅ 预览图片: {}".format(preview_path))
+                        else:
+                            print("❌ 预览生成失败")
+                    else:
+                        print("❌ 字体名称不能为空")
+
+                elif choice == '4':
+                    # 测试兼容性
+                    font_name = input("输入字体名称或路径: ").strip()
+                    if font_name:
+                        results = font_manager.test_font_compatibility(font_name)
+                        print("\n字体兼容性测试结果 ({}):".format(font_name))
+                        for test, result in results.items():
+                            status = "✅" if result else "❌"
+                            print("  {}: {}".format(test, status))
+                    else:
+                        print("❌ 字体名称不能为空")
+
+                elif choice == '5':
+                    # 退出
+                    print("👋 再见！")
+                    break
+
+                else:
+                    print("❌ 无效选择，请重新输入")
+
+        except KeyboardInterrupt:
+            print("\n👋 再见！")
+        except Exception as e:
+            print("❌ 字体管理器出错: {}".format(str(e)))
 
 if __name__ == "__main__":
     main()

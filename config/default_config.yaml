@@ -1,193 +1,150 @@
-# 视频生成工厂 - 默认配置文件
-
-# 项目路径配置
-paths:
-  assets: "assets"
-  output: "output"
-  data: "data"
-  templates: "assets/templates"
-  music: "assets/music"
-  fonts: "assets/fonts"
-
-# 视频基础设置
-video:
-  resolution: [1920, 1080]  # 分辨率
-  fps: 30                    # 帧率
-  codec: "libx264"           # 编码器
-  bitrate: "5000k"           # 比特率
-  duration: "auto"           # 视频时长 (auto为根据音频长度自动计算)
-  background_color: [0, 0, 0]  # 背景颜色 RGB
-
-# TTS 语音合成设置
-tts:
-  engine: "edge-tts"         # 引擎: edge-tts, pyttsx3, azure
-  voice: "zh-CN-XiaoxiaoNeural"  # 语音
-  rate: 1.0                  # 语速 (0.5-2.0)
-  volume: 1.0                # 音量 (0.0-1.0)
-  pitch: 0                   # 音调 (-20 to +20)
-
-  # Edge TTS 可用语音列表
-  available_voices:
-    - "zh-CN-XiaoxiaoNeural"  # 女声-晓晓
-    - "zh-CN-YunxiNeural"     # 男声-云希
-    - "zh-CN-YunyangNeural"   # 男声-云扬
-    - "zh-CN-XiaoyiNeural"    # 女声-晓伊
-
-# STT 语音转文字设置
-stt:
-  enabled: false             # 是否启用 STT 功能
-
-  # 模型配置
-  model: "base"              # 模型大小: tiny/base/small/medium/large
-  language: "zh"             # 语言代码
-
-  # 计算配置
-  device: "auto"             # 计算设备: auto, cpu, cuda
-  compute_type: "auto"       # 计算类型: auto, float16, float32, int8
-  cpu_threads: 4             # CPU 线程数
-  num_workers: 1             # 工作进程数
-
-  # 推理参数
-  beam_size: 5               # 束搜索大小
-  patience: 1.0              # 耐心因子
-  length_penalty: 1.0        # 长度惩罚
-  repetition_penalty: 1.0    # 重复惩罚
-  no_repeat_ngram_size: 0    # 无重复 n-gram 大小
-
-  # 音频处理参数
-  vad_filter: true           # 启用语音活动检测
-  vad_threshold: 0.35        # VAD 阈值
-  vad_min_speech_duration_ms: 250  # 最小语音持续时间 (毫秒)
-  vad_max_speech_duration_s: 30    # 最大语音持续时间 (秒)
-
-  # 质量控制参数
-  compression_ratio_threshold: 2.4  # 压缩比阈值
-  logprob_threshold: -1.0    # 对数概率阈值
-  temperature: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]  # 温度参数列表
-
-# 字幕设置
-subtitle:
+auto_materials:
+  auto_download: true
+  build_library: true
   enabled: true
-
-  # 字体配置（新版）
-  # 方式1: 直接指定字体文件路径（优先级最高）
-  font_path: null  # 例如: "assets/fonts/NotoSansCJKsc-Regular.otf"
-
-  # 方式2: 字体名称回退列表（按优先级尝试）
-  font_fallback:
-    - "Noto Sans CJK SC"        # 跨平台推荐（需要安装或提供字体文件）
-    - "STHeiti Medium"          # macOS 华文黑体
-    - "Heiti SC"                # macOS 黑体-简
-    - "PingFang SC"             # macOS 苹方-简
-    - "Microsoft YaHei"         # Windows 微软雅黑
-    - "SimHei"                  # Windows 黑体
-    - "WenQuanYi Micro Hei"     # Linux 文泉驿微米黑
-    - "Droid Sans Fallback"     # Android/Linux
-    - "Arial Unicode MS"        # 通用回退
-
-  # 旧版配置（向后兼容，建议使用上面的 font_path 或 font_fallback）
-  font_name: "STHeiti Medium"  # 字体名称 (macOS中文)
-
-  # 字幕样式
-  font_size: 48
-  font_color: "white"
-  stroke_color: "black"
-  stroke_width: 2
-  position: "bottom"         # 位置: top, center, bottom
-  margin_bottom: 100         # 底部边距(像素)
-  duration_per_char: 0.3     # 每个字符显示时长(秒)
-  max_chars_per_line: 25     # 每行最大字符数
-  align: "center"            # 对齐方式: left, center, right
-
-  # STT 字幕专用配置
-  stt_segment_merge_threshold: 1.5  # STT片段合并阈值（秒）
-  stt_min_segment_length: 0.5       # 最小片段长度（秒）
-  min_confidence_threshold: 0.3     # 最小置信度阈值
-  trim_punctuation: false           # 是否移除首尾标点
-
-# 背景音乐设置
-music:
-  enabled: true
-  volume: 0.2                # 音乐音量 (0.0-1.0)
-  fade_in: 2.0               # 淡入时长(秒)
-  fade_out: 3.0              # 淡出时长(秒)
-  loop: true                 # 是否循环
-  default_track: "assets/music/default.mp3"
-
-# 内容源设置
-content_sources:
-  # 文本脚本
-  text:
-    encoding: "utf-8"
-    split_by_paragraph: true
-
-  # 素材库
-  materials:
-    image_formats: [".jpg", ".jpeg", ".png", ".webp"]
-    video_formats: [".mp4", ".mov", ".avi"]
-    auto_resize: true
-
-  # AI生成 (可选)
-  ai:
-    enabled: false
-    provider: "openai"       # openai, azure, local
-    model: "gpt-4"
-    api_key: "${OPENAI_API_KEY}"
-
-# 视频模板设置
-templates:
-  default: "simple"          # 默认模板
-
-  simple:
-    type: "image_slideshow"
-    transition: "fade"       # 转场效果: fade, slide, zoom
-    transition_duration: 0.5
-    image_duration: 5.0      # 每张图片显示时长
-
-  tutorial:
-    type: "screen_recording"
-    watermark: true
-    watermark_position: "bottom-right"
-
-# 批处理设置
+  library_path: data/material_library
+  local_priority: true
+  materials_per_segment: 1
+  pexels_key: ${PEXELS_API_KEY}
+  semantic:
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-3.5-turbo
+    use_ai: false
+  unsplash_key: ${UNSPLASH_ACCESS_KEY}
 batch:
-  max_workers: 2             # 最大并行任务数
+  log_level: INFO
+  max_workers: 2
   retry_on_error: true
   retry_times: 3
   save_logs: true
-  log_level: "INFO"
-
-# 导出设置
-export:
-  format: "mp4"
-  quality: "high"            # low, medium, high, ultra
-  filename_pattern: "{title}_{timestamp}"
-  overwrite: false
-
-# 调试设置
+content_sources:
+  ai:
+    api_key: ${OPENAI_API_KEY}
+    enabled: false
+    model: gpt-4
+    provider: openai
+  materials:
+    auto_resize: true
+    image_formats:
+    - .jpg
+    - .jpeg
+    - .png
+    - .webp
+    video_formats:
+    - .mp4
+    - .mov
+    - .avi
+  text:
+    encoding: utf-8
+    split_by_paragraph: true
 debug:
   enabled: false
-  save_intermediate: false   # 保存中间文件
+  save_intermediate: false
   verbose_logging: false
-
-# 自动素材获取设置
-auto_materials:
-  enabled: true               # 是否启用自动素材获取
-  local_priority: true        # 优先使用本地素材
-  auto_download: true         # 自动从在线图库下载
-  build_library: true         # 构建素材库（保存下载的素材）
-  library_path: "data/material_library"  # 素材库路径
-  
-  # 语义匹配设置
-  semantic:
-    use_ai: false             # 是否使用AI提取关键词（需要API）
-    api_key: "${OPENAI_API_KEY}"
-    model: "gpt-3.5-turbo"
-  
-  # 图库API密钥（可选）
-  unsplash_key: "${UNSPLASH_ACCESS_KEY}"
-  pexels_key: "${PEXELS_API_KEY}"
-  
-  # 素材数量
-  materials_per_segment: 1    # 每个脚本片段使用的素材数量
-
+export:
+  filename_pattern: '{title}_{timestamp}'
+  format: mp4
+  overwrite: false
+  quality: high
+music:
+  default_track: assets/music/default.mp3
+  enabled: true
+  fade_in: 2.0
+  fade_out: 3.0
+  loop: true
+  volume: 0.2
+paths:
+  assets: assets
+  data: data
+  fonts: assets/fonts
+  music: assets/music
+  output: output
+  templates: assets/templates
+stt:
+  beam_size: 5
+  compression_ratio_threshold: 2.4
+  compute_type: auto
+  cpu_threads: 4
+  device: auto
+  enabled: false
+  language: zh
+  length_penalty: 1.0
+  logprob_threshold: -1.0
+  model: base
+  no_repeat_ngram_size: 0
+  num_workers: 1
+  patience: 1.0
+  repetition_penalty: 1.0
+  temperature:
+  - 0.0
+  - 0.2
+  - 0.4
+  - 0.6
+  - 0.8
+  - 1.0
+  vad_filter: true
+  vad_max_speech_duration_s: 30
+  vad_min_speech_duration_ms: 250
+  vad_threshold: 0.35
+subtitle:
+  align: center
+  duration_per_char: 0.3
+  enabled: true
+  font_color: white
+  font_fallback:
+  - 'assets/fonts/NotoSansCJKsc-Regular.otf  # Noto Sans CJK SC (项目预置)'
+  - Noto Sans CJK SC
+  - STHeiti Medium
+  - Heiti SC
+  - PingFang SC
+  - Microsoft YaHei
+  - SimHei
+  - WenQuanYi Micro Hei
+  - Droid Sans Fallback
+  - Arial Unicode MS
+  font_name: STHeiti Medium
+  font_path: null
+  font_size: 48
+  margin_bottom: 100
+  max_chars_per_line: 25
+  min_confidence_threshold: 0.3
+  position: bottom
+  stroke_color: black
+  stroke_width: 2
+  stt_min_segment_length: 0.5
+  stt_segment_merge_threshold: 1.5
+  trim_punctuation: false
+templates:
+  default: simple
+  simple:
+    image_duration: 5.0
+    transition: fade
+    transition_duration: 0.5
+    type: image_slideshow
+  tutorial:
+    type: screen_recording
+    watermark: true
+    watermark_position: bottom-right
+tts:
+  available_voices:
+  - zh-CN-XiaoxiaoNeural
+  - zh-CN-YunxiNeural
+  - zh-CN-YunyangNeural
+  - zh-CN-XiaoyiNeural
+  engine: edge-tts
+  pitch: 0
+  rate: 1.0
+  voice: zh-CN-XiaoxiaoNeural
+  volume: 1.0
+video:
+  background_color:
+  - 0
+  - 0
+  - 0
+  bitrate: 5000k
+  codec: libx264
+  duration: auto
+  fps: 30
+  resolution:
+  - 1920
+  - 1080
