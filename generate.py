@@ -5,6 +5,10 @@
 
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载.env环境变量
+load_dotenv()
 
 # 添加src到路径
 src_path = Path(__file__).parent / 'src'

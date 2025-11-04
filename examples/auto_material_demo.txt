@@ -1,0 +1,13 @@
+#scene:tech# 欢迎来到人工智能时代！
+
+今天我们要探讨人工智能如何改变我们的生活。从智能手机到自动驾驶，AI无处不在。
+
+#scene:business# 在商业领域，人工智能正在revolutionizing工作方式。
+
+数据分析、客户服务、市场预测，AI都能提供强大的支持。
+
+#scene:nature# 但我们不能忘记，technology应该服务于人类，保护我们的自然环境。
+
+#scene:education# 教育也在被AI改变。个性化学习、智能辅导，让每个学生都能获得最适合的教育。
+
+#scene:conclusion# 未来充满无限可能，让我们一起拥抱AI时代！

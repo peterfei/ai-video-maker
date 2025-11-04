@@ -12,7 +12,7 @@ import uuid
 # 导入各模块
 from config_loader import get_config
 from utils import setup_logger, generate_filename, ensure_dir
-from content_sources import TextSource, MaterialSource
+from content_sources import TextSource, MaterialSource, AutoMaterialManager
 from audio import TTSEngine, AudioMixer
 from subtitle import SubtitleGenerator, SubtitleRenderer
 from video_engine import VideoCompositor, VideoEffects
@@ -41,6 +41,12 @@ class VideoFactory:
         self.subtitle_generator = SubtitleGenerator(self.config.get('subtitle', {}))
         self.subtitle_renderer = SubtitleRenderer(self.config.get('subtitle', {}))
         self.video_compositor = VideoCompositor(self.config.get('video', {}))
+
+        # 初始化自动素材管理器（如果启用）
+        self.auto_material_enabled = self.config.get('auto_materials.enabled', False)
+        if self.auto_material_enabled:
+            self.auto_material_manager = AutoMaterialManager(self.config.get('auto_materials', {}))
+            self.logger.info("自动素材管理器已启用")
 
         self.logger.info("视频生成工厂初始化完成")
 
@@ -84,7 +90,17 @@ class VideoFactory:
 
             # 2. 加载素材
             self.logger.info("步骤 2/7: 加载素材")
-            if materials_dir:
+            if self.auto_material_enabled:
+                # 使用自动素材管理器
+                self.logger.info("使用自动素材管理器获取素材")
+                material_paths = self.auto_material_manager.get_materials_for_script(
+                    script_segments,
+                    materials_per_segment=self.config.get('auto_materials.materials_per_segment', 1)
+                )
+                # 转换路径为Material对象列表
+                materials = [{'path': p} for p in material_paths] if material_paths else []
+                self.logger.info(f"自动获取了 {len(materials)} 个素材")
+            elif materials_dir:
                 materials = self.material_source.load_materials(materials_dir)
                 self.logger.info(f"加载了 {len(materials)} 个素材")
             else:
@@ -132,14 +148,19 @@ class VideoFactory:
             self.logger.info("步骤 6/7: 创建视频")
 
             if materials:
-                # 选择素材创建幻灯片
-                selected_materials = self.material_source.select_materials(
-                    count=max(5, len(script_segments)),
-                    material_type='image'
-                )
+                # 处理素材路径
+                if isinstance(materials[0], dict) and 'path' in materials[0]:
+                    # 来自自动素材管理器的路径列表
+                    image_paths = [m['path'] for m in materials]
+                else:
+                    # 来自material_source的Material对象
+                    selected_materials = self.material_source.select_materials(
+                        count=max(5, len(script_segments)),
+                        material_type='image'
+                    )
+                    image_paths = [m.path for m in selected_materials] if selected_materials else []
 
-                if selected_materials:
-                    image_paths = [m.path for m in selected_materials]
+                if image_paths:
                     video_clip = self.video_compositor.create_slideshow(
                         images=image_paths,
                         audio_path=str(final_audio_path),
@@ -148,10 +169,10 @@ class VideoFactory:
                     )
                 else:
                     # 创建纯色背景视频
+                    from moviepy.editor import AudioFileClip
                     video_clip = self.video_compositor.create_background_video(audio_duration)
-                    video_clip = video_clip.set_audio(
-                        self.audio_mixer.audio_mixer.AudioFileClip(str(final_audio_path))
-                    )
+                    audio_clip = AudioFileClip(str(final_audio_path))
+                    video_clip = video_clip.set_audio(audio_clip)
             else:
                 # 创建纯色背景视频
                 from moviepy.editor import AudioFileClip

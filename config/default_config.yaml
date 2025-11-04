@@ -111,3 +111,25 @@ debug:
   enabled: false
   save_intermediate: false   # 保存中间文件
   verbose_logging: false
+
+# 自动素材获取设置
+auto_materials:
+  enabled: true               # 是否启用自动素材获取
+  local_priority: true        # 优先使用本地素材
+  auto_download: true         # 自动从在线图库下载
+  build_library: true         # 构建素材库（保存下载的素材）
+  library_path: "data/material_library"  # 素材库路径
+  
+  # 语义匹配设置
+  semantic:
+    use_ai: false             # 是否使用AI提取关键词（需要API）
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-3.5-turbo"
+  
+  # 图库API密钥（可选）
+  unsplash_key: "${UNSPLASH_ACCESS_KEY}"
+  pexels_key: "${PEXELS_API_KEY}"
+  
+  # 素材数量
+  materials_per_segment: 1    # 每个脚本片段使用的素材数量
+

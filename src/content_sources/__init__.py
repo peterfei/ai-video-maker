@@ -5,5 +5,14 @@
 
 from .text_source import TextSource
 from .material_source import MaterialSource
+from .auto_material_manager import AutoMaterialManager
+from .semantic_matcher import SemanticMatcher
+from .image_api import MultiSourceImageAPI
 
-__all__ = ['TextSource', 'MaterialSource']
+__all__ = [
+    'TextSource',
+    'MaterialSource',
+    'AutoMaterialManager',
+    'SemanticMatcher',
+    'MultiSourceImageAPI'
+]
