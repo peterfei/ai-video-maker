@@ -33,6 +33,38 @@ tts:
     - "zh-CN-YunyangNeural"   # 男声-云扬
     - "zh-CN-XiaoyiNeural"    # 女声-晓伊
 
+# STT 语音转文字设置
+stt:
+  enabled: false             # 是否启用 STT 功能
+
+  # 模型配置
+  model: "base"              # 模型大小: tiny/base/small/medium/large
+  language: "zh"             # 语言代码
+
+  # 计算配置
+  device: "auto"             # 计算设备: auto, cpu, cuda
+  compute_type: "auto"       # 计算类型: auto, float16, float32, int8
+  cpu_threads: 4             # CPU 线程数
+  num_workers: 1             # 工作进程数
+
+  # 推理参数
+  beam_size: 5               # 束搜索大小
+  patience: 1.0              # 耐心因子
+  length_penalty: 1.0        # 长度惩罚
+  repetition_penalty: 1.0    # 重复惩罚
+  no_repeat_ngram_size: 0    # 无重复 n-gram 大小
+
+  # 音频处理参数
+  vad_filter: true           # 启用语音活动检测
+  vad_threshold: 0.35        # VAD 阈值
+  vad_min_speech_duration_ms: 250  # 最小语音持续时间 (毫秒)
+  vad_max_speech_duration_s: 30    # 最大语音持续时间 (秒)
+
+  # 质量控制参数
+  compression_ratio_threshold: 2.4  # 压缩比阈值
+  logprob_threshold: -1.0    # 对数概率阈值
+  temperature: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]  # 温度参数列表
+
 # 字幕设置
 subtitle:
   enabled: true
@@ -66,6 +98,12 @@ subtitle:
   duration_per_char: 0.3     # 每个字符显示时长(秒)
   max_chars_per_line: 25     # 每行最大字符数
   align: "center"            # 对齐方式: left, center, right
+
+  # STT 字幕专用配置
+  stt_segment_merge_threshold: 1.5  # STT片段合并阈值（秒）
+  stt_min_segment_length: 0.5       # 最小片段长度（秒）
+  min_confidence_threshold: 0.3     # 最小置信度阈值
+  trim_punctuation: false           # 是否移除首尾标点
 
 # 背景音乐设置
 music:

@@ -13,8 +13,8 @@ import uuid
 from config_loader import get_config
 from utils import setup_logger, generate_filename, ensure_dir
 from content_sources import TextSource, MaterialSource, AutoMaterialManager
-from audio import TTSEngine, AudioMixer
-from subtitle import SubtitleGenerator, SubtitleRenderer
+from audio import TTSEngine, AudioMixer, STTEngine
+from subtitle import SubtitleGenerator, SubtitleRenderer, STTSubtitleGenerator
 from video_engine import VideoCompositor, VideoEffects
 from tasks import TaskQueue, VideoTask, BatchProcessor, TaskStatus
 
@@ -41,6 +41,16 @@ class VideoFactory:
         self.subtitle_generator = SubtitleGenerator(self.config.get('subtitle', {}))
         self.subtitle_renderer = SubtitleRenderer(self.config.get('subtitle', {}))
         self.video_compositor = VideoCompositor(self.config.get('video', {}))
+
+        # 初始化 STT 相关模块
+        self.stt_enabled = self.config.get('stt.enabled', False)
+        if self.stt_enabled:
+            self.stt_engine = STTEngine(self.config.get('stt', {}))
+            self.stt_subtitle_generator = STTSubtitleGenerator(self.config.get('subtitle', {}))
+            self.logger.info("STT 引擎已启用")
+        else:
+            self.stt_engine = None
+            self.stt_subtitle_generator = None
 
         # 初始化自动素材管理器（如果启用）
         self.auto_material_enabled = self.config.get('auto_materials.enabled', False)
@@ -251,6 +261,159 @@ class VideoFactory:
                 'error': str(e)
             }
 
+    def generate_video_from_audio(
+        self,
+        audio_path: str,
+        output_path: Optional[str] = None,
+        title: Optional[str] = None,
+        materials_dir: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        从音频文件生成带字幕的视频
+
+        Args:
+            audio_path: 音频文件路径
+            output_path: 输出视频路径
+            title: 视频标题
+            materials_dir: 素材目录路径
+
+        Returns:
+            生成结果字典
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("开始从音频生成带字幕的视频")
+
+        try:
+            # 检查 STT 功能是否启用
+            if not self.stt_enabled or not self.stt_engine or not self.stt_subtitle_generator:
+                raise RuntimeError("STT 功能未启用，请在配置中设置 stt.enabled=true")
+
+            # 1. 验证音频文件
+            self.logger.info("步骤 1/6: 验证音频文件")
+            audio_path = Path(audio_path)
+            if not audio_path.exists():
+                raise FileNotFoundError(f"音频文件不存在: {audio_path}")
+
+            if not self.stt_engine.validate_audio_format(str(audio_path)):
+                raise ValueError(f"不支持的音频格式: {audio_path.suffix}")
+
+            # 2. 加载素材（如果提供）
+            self.logger.info("步骤 2/6: 加载素材")
+            materials = []
+            if materials_dir:
+                materials = self.material_source.load_materials(materials_dir)
+                self.logger.info(f"加载了 {len(materials)} 个素材")
+            else:
+                self.logger.info("未提供素材目录，将生成纯背景视频")
+
+            # 3. STT 语音转文字
+            self.logger.info("步骤 3/6: 执行语音转文字")
+            stt_result = self.stt_engine.transcribe(str(audio_path))
+
+            if not stt_result.segments:
+                raise RuntimeError("STT 转录失败，未识别到任何语音内容")
+
+            self.logger.info(
+                f"语音转文字完成: {len(stt_result.segments)} 个片段，"
+                ".2f"
+                ".2f"
+            )
+
+            # 4. 生成字幕
+            self.logger.info("步骤 4/6: 生成字幕")
+            subtitle_segments = self.stt_subtitle_generator.generate_from_stt(stt_result)
+            self.logger.info(f"字幕生成完成: {len(subtitle_segments)} 个字幕片段")
+
+            # 5. 创建视频
+            self.logger.info("步骤 5/6: 创建视频")
+
+            # 确定音频时长
+            audio_duration = stt_result.duration
+
+            if materials:
+                # 处理素材路径
+                if isinstance(materials[0], dict) and 'path' in materials[0]:
+                    # 来自自动素材管理器的路径列表
+                    image_paths = [m['path'] for m in materials]
+                else:
+                    # 来自material_source的Material对象
+                    selected_materials = self.material_source.select_materials(
+                        count=max(5, len(subtitle_segments)),  # 基于字幕数量选择素材
+                        material_type='image'
+                    )
+                    image_paths = [m.path for m in selected_materials] if selected_materials else []
+
+                if image_paths:
+                    video_clip = self.video_compositor.create_slideshow(
+                        images=image_paths,
+                        audio_path=str(audio_path),
+                        image_duration=self.config.get('templates.simple.image_duration', 5.0),
+                        transition=self.config.get('templates.simple.transition', 'fade'),
+                        transition_duration=self.config.get('templates.simple.transition_duration', 0.5)
+                    )
+                else:
+                    # 创建纯色背景视频
+                    from moviepy.editor import AudioFileClip
+                    video_clip = self.video_compositor.create_background_video(audio_duration)
+                    audio_clip = AudioFileClip(str(audio_path))
+                    video_clip = video_clip.set_audio(audio_clip)
+            else:
+                # 创建纯色背景视频
+                from moviepy.editor import AudioFileClip
+                video_clip = self.video_compositor.create_background_video(audio_duration)
+                audio_clip = AudioFileClip(str(audio_path))
+                video_clip = video_clip.set_audio(audio_clip)
+
+            # 6. 添加字幕
+            self.logger.info("步骤 6/6: 渲染字幕")
+            if self.config.get('subtitle.enabled', True) and subtitle_segments:
+                video_clip = self.subtitle_renderer.render_on_video(
+                    video_clip,
+                    subtitle_segments
+                )
+                self.logger.info("字幕已添加")
+
+            # 7. 导出视频
+            self.logger.info("导出视频...")
+            if not output_path:
+                output_dir = ensure_dir(Path(self.config.get('paths.output', 'output')))
+                title = title or audio_path.stem
+                filename = generate_filename(
+                    title,
+                    self.config.get('export.filename_pattern', '{title}_{timestamp}'),
+                    self.config.get('export.format', 'mp4')
+                )
+                output_path = output_dir / filename
+
+            final_path = self.video_compositor.render_video(
+                video_clip,
+                str(output_path),
+                preset=self._get_quality_preset()
+            )
+
+            self.logger.info(f"视频生成成功: {final_path}")
+            self.logger.info("=" * 60)
+
+            return {
+                'success': True,
+                'output_path': str(final_path),
+                'duration': audio_duration,
+                'subtitle_count': len(subtitle_segments),
+                'stt_segments': len(stt_result.segments),
+                'language': stt_result.language,
+                'title': title or audio_path.stem
+            }
+
+        except Exception as e:
+            self.logger.error(f"音频视频生成失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def _get_quality_preset(self) -> str:
         """获取编码质量预设"""
         quality = self.config.get('export.quality', 'high')
@@ -286,11 +449,12 @@ def main():
 
     parser.add_argument('--script', '-s', type=str, help='脚本文件路径')
     parser.add_argument('--text', '-t', type=str, help='直接提供脚本文本')
+    parser.add_argument('--audio', '-a', type=str, help='音频文件路径（用于生成字幕的语音文件）')
     parser.add_argument('--materials', '-m', type=str, help='素材目录路径')
     parser.add_argument('--output', '-o', type=str, help='输出文件路径')
     parser.add_argument('--title', type=str, help='视频标题')
     parser.add_argument('--config', '-c', type=str, default='config/default_config.yaml',
-                        help='配置文件路径')
+                         help='配置文件路径')
     parser.add_argument('--batch', '-b', type=str, help='批量处理：脚本目录路径')
 
     args = parser.parse_args()
@@ -302,27 +466,56 @@ def main():
         # 批量处理模式
         batch_process(factory, args.batch)
     else:
-        # 单个视频生成
-        if not args.script and not args.text:
-            print("错误: 必须提供 --script 或 --text 参数")
+        # 检查输入参数
+        input_count = sum([bool(args.script), bool(args.text), bool(args.audio)])
+        if input_count == 0:
+            print("错误: 必须提供以下参数之一:")
+            print("  --script (-s): 脚本文件路径")
+            print("  --text (-t): 直接提供脚本文本")
+            print("  --audio (-a): 音频文件路径（用于生成字幕）")
+            sys.exit(1)
+        elif input_count > 1:
+            print("错误: 不能同时提供多个输入源 (--script, --text, --audio)")
             sys.exit(1)
 
-        result = factory.generate_video(
-            script_path=args.script,
-            script_text=args.text,
-            materials_dir=args.materials,
-            output_path=args.output,
-            title=args.title
-        )
+        # 根据输入类型调用相应方法
+        if args.audio:
+            # 音频输入模式
+            result = factory.generate_video_from_audio(
+                audio_path=args.audio,
+                output_path=args.output,
+                title=args.title,
+                materials_dir=args.materials
+            )
 
-        if result['success']:
-            print(f"\n✓ 视频生成成功!")
-            print(f"  输出路径: {result['output_path']}")
-            print(f"  时长: {result['duration']:.2f}秒")
-            print(f"  字幕数: {result['subtitle_count']}")
+            if result['success']:
+                print(f"\n✓ 音频字幕视频生成成功!")
+                print(f"  输出路径: {result['output_path']}")
+                print(f"  时长: {result['duration']:.2f}秒")
+                print(f"  字幕数: {result['subtitle_count']}")
+                print(f"  STT片段数: {result['stt_segments']}")
+                print(f"  识别语言: {result['language']}")
+            else:
+                print(f"\n✗ 音频字幕视频生成失败: {result['error']}")
+                sys.exit(1)
         else:
-            print(f"\n✗ 视频生成失败: {result['error']}")
-            sys.exit(1)
+            # 文本输入模式（原有功能）
+            result = factory.generate_video(
+                script_path=args.script,
+                script_text=args.text,
+                materials_dir=args.materials,
+                output_path=args.output,
+                title=args.title
+            )
+
+            if result['success']:
+                print(f"\n✓ 视频生成成功!")
+                print(f"  输出路径: {result['output_path']}")
+                print(f"  时长: {result['duration']:.2f}秒")
+                print(f"  字幕数: {result['subtitle_count']}")
+            else:
+                print(f"\n✗ 视频生成失败: {result['error']}")
+                sys.exit(1)
 
 
 def batch_process(factory: VideoFactory, scripts_dir: str):

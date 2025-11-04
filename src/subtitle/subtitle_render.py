@@ -108,17 +108,24 @@ class SubtitleRenderer:
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        # 设置字体
+        # 设置字体 - 始终转换为字体路径
         if isinstance(best_font, Path):
             # 字体文件路径
             self.font = str(best_font)
             self.font_name = None
             self.logger.info(f"✓ 使用字体文件: {best_font.name}")
         else:
-            # 字体名称
-            self.font = best_font
-            self.font_name = best_font
-            self.logger.info(f"✓ 使用系统字体: {best_font}")
+            # 字体名称 - 需要转换为路径
+            font_path = self.font_manager.get_font_path(best_font)
+            if font_path:
+                self.font = str(font_path)
+                self.font_name = None
+                self.logger.info(f"✓ 使用系统字体: {best_font} -> {font_path}")
+            else:
+                # 如果无法获取路径，使用名称（可能不支持中文）
+                self.font = best_font
+                self.font_name = best_font
+                self.logger.warning(f"⚠ 无法获取字体路径，使用字体名称: {best_font} (可能不支持中文)")
 
     def create_text_clips(
         self,
@@ -142,18 +149,41 @@ class SubtitleRenderer:
 
         for segment in subtitle_segments:
             try:
-                # 创建文本片段 - 使用检测到的字体
-                txt_clip = TextClip(
-                    segment.text,
-                    fontsize=self.font_size,
-                    font=self.font,  # 使用经过验证的字体
-                    color=self.font_color,
-                    stroke_color=self.stroke_color,
-                    stroke_width=self.stroke_width,
-                    method='caption',
-                    size=(video_size[0] * 0.9, None),  # 宽度为视频的90%
-                    align=self.align
-                )
+                # 清理和截断字幕文本，确保不会太长
+                text = self._clean_subtitle_text(segment.text)
+
+                # 创建文本片段 - 使用字体路径以确保中文正确显示
+                try:
+                    txt_clip = TextClip(
+                        text,
+                        fontsize=self.font_size,
+                        font=self.font,  # 使用字体路径
+                        color=self.font_color,
+                        stroke_color=self.stroke_color,
+                        stroke_width=self.stroke_width,
+                        method='label',
+                        size=(video_size[0] * 0.9, None),
+                        align=self.align
+                    )
+                except Exception as e:
+                    # 如果label方法失败，尝试caption方法
+                    self.logger.warning(f"使用label方法创建字幕失败，尝试caption方法: {text[:20]}... ({e})")
+                    try:
+                        txt_clip = TextClip(
+                            text,
+                            fontsize=self.font_size,
+                            font=self.font,  # 使用字体路径
+                            color=self.font_color,
+                            stroke_color=self.stroke_color,
+                            stroke_width=self.stroke_width,
+                            method='caption',
+                            size=(video_size[0] * 0.9, None),
+                            align=self.align
+                        )
+                    except Exception as e2:
+                        # 如果都失败了，跳过这个字幕
+                        self.logger.error(f"字幕创建完全失败，跳过: {text[:30]}... (label: {e}, caption: {e2})")
+                        continue
 
                 # 设置显示时间
                 txt_clip = txt_clip.set_start(segment.start_time)
@@ -167,13 +197,45 @@ class SubtitleRenderer:
 
             except Exception as e:
                 self.logger.error(
-                    f"创建字幕片段失败 (索引 {segment.index}): {segment.text[:20]}..."
+                    f"创建字幕片段失败 (索引 {segment.index}): {segment.text[:50]}..."
                 )
                 self.logger.error(f"错误详情: {str(e)}")
+                self.logger.error(f"字幕时长: {segment.duration:.2f}s, 开始时间: {segment.start_time:.2f}s")
                 # 继续处理下一个字幕，不中断整个流程
                 continue
 
         return text_clips
+
+    def _clean_subtitle_text(self, text: str) -> str:
+        """
+        清理字幕文本，确保渲染成功
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            str: 清理后的文本
+        """
+        if not text:
+            return ""
+
+        # 移除多余空白字符
+        text = ' '.join(text.split())
+
+        # 限制文本长度，避免渲染问题
+        max_length = 100  # 最大100个字符
+        if len(text) > max_length:
+            text = text[:max_length - 3] + "..."
+            self.logger.warning(f"字幕文本过长，已截断: {text}")
+
+        # 检查是否包含可能导致问题的字符
+        # 移除或替换有问题的字符
+        text = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
+        # 移除不可见字符
+        text = ''.join(c for c in text if c.isprintable() or c in ['\u3000', '\u00A0'])  # 保留全角空格
+
+        return text.strip()
 
     def _calculate_position(
         self,
@@ -228,16 +290,30 @@ class SubtitleRenderer:
         if not self.enabled or not subtitle_segments:
             return video_clip
 
+        self.logger.info(f"开始渲染 {len(subtitle_segments)} 个字幕片段到视频")
+
         # 创建文本片段
         text_clips = self.create_text_clips(subtitle_segments, video_clip.size)
 
         if not text_clips:
+            self.logger.warning("没有成功创建任何字幕片段")
             return video_clip
 
-        # 合成视频
-        final_clip = CompositeVideoClip([video_clip] + text_clips)
+        self.logger.info(f"成功创建 {len(text_clips)} 个字幕文本片段")
 
-        return final_clip
+        # 检查字幕数量，如果太多可能影响性能
+        if len(text_clips) > 50:
+            self.logger.warning(f"字幕片段数量过多 ({len(text_clips)})，可能影响渲染性能")
+
+        try:
+            # 合成视频 - 按时间顺序确保正确的渲染顺序
+            final_clip = CompositeVideoClip([video_clip] + text_clips)
+            self.logger.info("字幕渲染完成")
+            return final_clip
+        except Exception as e:
+            self.logger.error(f"字幕合成失败: {e}")
+            # 如果合成失败，返回原视频
+            return video_clip
 
     def create_subtitle_image(
         self,
@@ -336,7 +412,7 @@ class SubtitleRenderer:
         txt_clip = TextClip(
             text,
             fontsize=self.font_size,
-            font=self.font_name,
+            font=self.font,
             color=self.font_color,
             stroke_color=self.stroke_color,
             stroke_width=self.stroke_width,
@@ -410,7 +486,7 @@ class SubtitleRenderer:
                 txt_clip = TextClip(
                     segment.text,
                     fontsize=self.font_size,
-                    font=self.font_name,
+                    font=self.font,
                     color=self.font_color,
                     stroke_color=self.stroke_color,
                     stroke_width=self.stroke_width
