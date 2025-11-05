@@ -81,6 +81,30 @@ class VideoFactory:
 
         self.logger.info("视频生成工厂初始化完成")
 
+    def _run_async(self, coro):
+        """
+        运行异步函数，处理事件循环冲突
+
+        Args:
+            coro: 协程对象
+
+        Returns:
+            协程的返回值
+        """
+        import asyncio
+        import concurrent.futures
+
+        try:
+            # 尝试获取当前运行的事件循环
+            loop = asyncio.get_running_loop()
+            # 如果已经有运行中的循环，使用 run_in_executor 在新线程中运行
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result()
+        except RuntimeError:
+            # 没有运行中的循环，可以直接使用 asyncio.run()
+            return asyncio.run(coro)
+
     def generate_video(
         self,
         script_path: Optional[str] = None,
@@ -177,10 +201,10 @@ class VideoFactory:
 
             # 4. 添加背景音乐
             self.logger.info("步骤 4/7: 添加背景音乐")
-            if self.config.get('music.basic_enabled', True):
+            if self.config.get('music', {}).get('enabled', True):
                 # 检查是否启用智能音乐选择
                 if (self.music_enabled and self.music_library and
-                    self.config.get('music.auto_select', False)):
+                    self.config.get('music', {}).get('auto_select', False)):
                     # 使用智能音乐选择
                     self.logger.info("正在分析内容并选择合适的背景音乐...")
                     try:
@@ -189,22 +213,21 @@ class VideoFactory:
 
                         # 异步调用音乐推荐
                         import asyncio
-                        best_music = asyncio.run(
+                        best_music = self._run_async(
                             self.music_library.get_music_for_content(full_content, audio_duration)
                         )
 
                         if best_music:
                             self.logger.info(f"选择了背景音乐: {best_music.title} ({best_music.artist}) - {best_music.mood}/{best_music.genre}")
 
-                            # 从库中获取本地文件路径
-                            # 检查是否有缓存的条目
-                            local_music_path = None
-                            if best_music.url in self.music_library.entries:
+                            # 获取本地文件路径（从返回的对象或库中）
+                            local_music_path = getattr(best_music, 'local_path', None)
+
+                            # 如果没有local_path属性，尝试从库中查找
+                            if not local_music_path and best_music.url in self.music_library.entries:
                                 entry = self.music_library.entries[best_music.url]
                                 if Path(entry.local_path).exists():
                                     local_music_path = entry.local_path
-                                    entry.mark_as_used()
-                                    self.music_library._save_library()
 
                             if local_music_path:
                                 final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
@@ -217,7 +240,7 @@ class VideoFactory:
                             else:
                                 # 下载失败，使用默认音乐
                                 self.logger.warning("智能音乐下载失败，使用默认音乐")
-                                music_path = self.config.get('music.default_track')
+                                music_path = self.config.get('music', {}).get('default_track')
                                 if music_path and Path(music_path).exists():
                                     final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
                                     self.audio_mixer.mix_voice_and_music(
@@ -232,7 +255,7 @@ class VideoFactory:
                         else:
                             # 没有找到合适的音乐，使用默认音乐
                             self.logger.info("未找到合适的智能音乐推荐，使用默认音乐")
-                            music_path = self.config.get('music.default_track')
+                            music_path = self.config.get('music', {}).get('default_track')
                             if music_path and Path(music_path).exists():
                                 final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
                                 self.audio_mixer.mix_voice_and_music(
@@ -247,7 +270,7 @@ class VideoFactory:
                     except Exception as e:
                         self.logger.warning(f"智能音乐选择失败: {e}，使用默认音乐")
                         # 回退到默认音乐
-                        music_path = self.config.get('music.default_track')
+                        music_path = self.config.get('music', {}).get('default_track')
                         if music_path and Path(music_path).exists():
                             final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
                             self.audio_mixer.mix_voice_and_music(
@@ -261,7 +284,7 @@ class VideoFactory:
                             self.logger.info("未找到背景音乐文件，使用纯语音")
                 else:
                     # 使用基础音乐功能（默认音乐）
-                    music_path = self.config.get('music.default_track')
+                    music_path = self.config.get('music', {}).get('default_track')
                     if music_path and Path(music_path).exists():
                         final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
                         self.audio_mixer.mix_voice_and_music(
@@ -506,7 +529,7 @@ class VideoFactory:
 
             # 5. 处理背景音乐
             self.logger.info("步骤 5/8: 处理背景音乐")
-            if music_recommendation and music_recommendation.local_path:
+            if music_recommendation and hasattr(music_recommendation, 'local_path') and music_recommendation.local_path:
                 # 使用智能选择的音乐
                 music_path = music_recommendation.local_path
                 final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
@@ -518,8 +541,8 @@ class VideoFactory:
                 self.logger.info("智能背景音乐已混合")
             else:
                 # 使用默认背景音乐或纯语音
-                if self.config.get('music.basic_enabled', True):
-                    default_music = self.config.get('music.default_track')
+                if self.config.get('music', {}).get('enabled', True):
+                    default_music = self.config.get('music', {}).get('default_track')
                     if default_music and Path(default_music).exists():
                         final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
                         self.audio_mixer.mix_voice_and_music(

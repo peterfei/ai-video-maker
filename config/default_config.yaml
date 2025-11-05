@@ -17,41 +17,6 @@ batch:
   retry_on_error: true
   retry_times: 3
   save_logs: true
-performance:
-  # 多线程设置
-  threading:
-    enabled: true
-    max_workers: auto              # auto, 或指定数字
-    max_concurrent_tasks: 4        # 最大并发任务数
-    task_timeout: 3600            # 单个任务超时时间(秒)
-    worker_memory_limit: 2048     # 每个工作线程内存限制(MB)
-    retry_on_error: true
-    retry_times: 3
-    save_logs: true
-
-  # GPU加速设置 - 已优化为推荐配置
-  gpu:
-    enabled: true                 # ✅ 启用GPU加速
-    device: auto                  # auto, cuda:0, cpu
-    backend_priority:             # GPU后端优先级（已优化）
-      - mps                       # ✅ Apple Silicon优先（M1/M2/M3/M4）
-      - cuda                      # NVIDIA GPU次之
-      - cpu                       # CPU回退
-    memory_limit: 0.8             # GPU内存使用比例 (0.0-1.0)
-    min_gpu_memory: 2147483648   # 最小GPU内存要求(2GB)
-    max_batch_size: 16            # 最大批处理大小
-
-    # GPU特效设置
-    effects:
-      enabled: true
-      precision: fp16             # fp16, fp32
-      cache_frames: true          # 是否缓存帧数据
-
-  # 性能监控
-  monitoring:
-    enable_metrics: true
-    log_performance: true
-    profile_tasks: false
 content_sources:
   ai:
     api_key: ${OPENAI_API_KEY}
@@ -82,63 +47,57 @@ export:
   overwrite: false
   quality: high
 music:
-  # 基础音乐设置
+  auto_select: true
+  cache:
+    enabled: true
+    library_path: data/music_library.json
+    max_age: 30
+    max_files: 100
+  copyright_only: true
   default_track: assets/music/piano.mp3
-  enabled: true                        # 启用智能音乐库
+  download:
+    chunk_size: 8192
+    dir: assets/music
+    max_size: 52428800
+    timeout: 30
+  enabled: true
   fade_in: 2.0
   fade_out: 3.0
   loop: true
-  volume: 0.2
-
-  # 智能音乐选择设置
-  auto_select: true                    # 启用智能音乐选择
-  copyright_only: true                 # 只使用无版权音乐
-
-  # OpenAI配置
   openai:
-    model: "gpt-4"                     # 使用的模型
-    temperature: 0.7                   # 生成温度
-    max_tokens: 1000                   # 最大token数
-    api_key: ${OPENAI_API_KEY}         # API密钥
-
-  # 音乐偏好
+    api_key: ${OPENAI_API_KEY}
+    max_tokens: 1000
+    model: gpt-4
+    temperature: 0.7
   preferences:
-    genres: ["ambient", "electronic", "classical", "jazz"]  # 偏好类型
-    moods: ["calm", "inspiring", "neutral"]  # 情绪偏好
-    max_duration: 600                   # 最大音乐时长（秒）
-    min_duration: 30                    # 最小时长（秒）
-
-  # 下载配置
-  download:
-    dir: "assets/music"                 # 下载目录
-    max_size: 52428800                  # 最大文件大小（50MB）
-    timeout: 30                         # 下载超时（秒）
-    chunk_size: 8192                    # 下载块大小
-
-  # 缓存配置
-  cache:
-    enabled: true
-    max_age: 30                         # 缓存最大年龄（天）
-    max_files: 100                      # 最大缓存文件数
-    library_path: "data/music_library.json"  # 库文件路径
-
-  # 音乐源配置
+    genres:
+    - ambient
+    - electronic
+    - classical
+    - jazz
+    max_duration: 600
+    min_duration: 30
+    moods:
+    - calm
+    - inspiring
+    - neutral
   sources:
-    jamendo:
-      enabled: true
-      copyright_status: "creative_commons"
-      client_id: ${CLIENTID}  # 从 .env 读取 Jamendo client ID
-    pixabay:
-      enabled: true
-      copyright_status: "royalty_free"
-      api_key_env: "PIXABAY_API_KEY"     # 申请地址：https://pixabay.com/api/docs/
     freesound:
+      api_key_env: FREESOUND_API_KEY
+      copyright_status: creative_commons
       enabled: true
-      copyright_status: "creative_commons"
-      api_key_env: "FREESOUND_API_KEY"   # 申请地址：https://freesound.org/apiv2/apply/
+    jamendo:
+      client_id: ${CLIENTID}
+      copyright_status: creative_commons
+      enabled: true
+    pixabay:
+      api_key_env: PIXABAY_API_KEY
+      copyright_status: royalty_free
+      enabled: true
     publicdomain:
+      copyright_status: public_domain
       enabled: true
-      copyright_status: "public_domain"
+  volume: 0.2
 paths:
   assets: assets
   data: data
@@ -146,6 +105,34 @@ paths:
   music: assets/music
   output: output
   templates: assets/templates
+performance:
+  gpu:
+    backend_priority:
+    - mps
+    - cuda
+    - cpu
+    device: auto
+    effects:
+      cache_frames: true
+      enabled: true
+      precision: fp16
+    enabled: true
+    max_batch_size: 16
+    memory_limit: 0.8
+    min_gpu_memory: 2147483648
+  monitoring:
+    enable_metrics: true
+    log_performance: true
+    profile_tasks: false
+  threading:
+    enabled: true
+    max_concurrent_tasks: 4
+    max_workers: auto
+    retry_on_error: true
+    retry_times: 3
+    save_logs: true
+    task_timeout: 3600
+    worker_memory_limit: 2048
 stt:
   beam_size: 5
   compression_ratio_threshold: 2.4
@@ -173,6 +160,7 @@ stt:
   vad_min_speech_duration_ms: 250
   vad_threshold: 0.35
 subtitle:
+  adaptive_font_size: true
   align: center
   duration_per_char: 0.3
   enabled: true
@@ -191,13 +179,12 @@ subtitle:
   font_name: STHeiti Medium
   font_path: null
   font_size: 48
-  adaptive_font_size: true  # 是否启用自适应字体大小
-  min_font_size: 24         # 最小字体大小
-  max_font_size: 72         # 最大字体大小
-  font_size_scale_factor: 0.02  # 相对于视频宽度的缩放因子
+  font_size_scale_factor: 0.02
   margin_bottom: 100
   max_chars_per_line: 25
+  max_font_size: 72
   min_confidence_threshold: 0.3
+  min_font_size: 24
   position: bottom
   stroke_color: black
   stroke_width: 2
@@ -232,9 +219,7 @@ video:
   - 0
   - 0
   bitrate: 5000k
-  codec: h264_videotoolbox        # ✅ Apple硬件编码器（M系列芯片推荐，性能提升2-3倍）
-  # codec: libx264                # 软件编码器（跨平台兼容，但速度较慢）
-  # codec: h264_nvenc             # NVIDIA硬件编码器（NVIDIA显卡推荐）
+  codec: h264_videotoolbox
   duration: auto
   fps: 30
   resolution:

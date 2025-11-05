@@ -97,8 +97,18 @@ class TTSEngine:
                     )
                     await communicate.save(str(output_path))
 
-                # 运行异步任务
-                asyncio.run(generate())
+                # 运行异步任务 - 处理事件循环冲突
+                try:
+                    # 尝试获取当前运行的事件循环
+                    loop = asyncio.get_running_loop()
+                    # 如果已经有运行中的循环，使用 run_in_executor 在新线程中运行
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, generate())
+                        future.result()
+                except RuntimeError:
+                    # 没有运行中的循环，可以直接使用 asyncio.run()
+                    asyncio.run(generate())
 
                 return output_path
 
