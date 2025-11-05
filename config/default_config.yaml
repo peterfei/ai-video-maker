@@ -36,7 +36,7 @@ content_sources:
     - .avi
   text:
     encoding: utf-8
-    split_by_paragraph: true
+    split_by_paragraph: false  # 按行分割脚本（适用于每行有时间标记的格式）
 debug:
   enabled: false
   save_intermediate: false
