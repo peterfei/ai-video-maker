@@ -1,7 +1,7 @@
 {
   "metadata": {
     "version": "1.0",
-    "last_updated": "2025-11-05T14:47:38.332944",
+    "last_updated": "2025-11-05T16:07:26.891620",
     "total_entries": 1
   },
   "entries": [
@@ -25,8 +25,8 @@
       },
       "local_path": "assets/music/4805d913_jamendo.mp3",
       "downloaded_at": "2025-11-05T14:47:38.332912",
-      "last_used": null,
-      "use_count": 0,
+      "last_used": "2025-11-05T16:07:26.891619",
+      "use_count": 20,
       "file_hash": null
     }
   ]

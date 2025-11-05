@@ -204,6 +204,7 @@ class VideoFactory:
                 self.logger.info("使用自动素材管理器为每个句子从在线图库获取匹配的素材")
 
                 # 为每个句子创建临时的脚本片段对象
+                from content_sources.text_source import ScriptSegment
                 sentence_script_segments = []
                 for sent_info in sentence_segments:
                     temp_seg = ScriptSegment(
@@ -366,8 +367,13 @@ class VideoFactory:
                     image_paths = [m['path'] for m in materials]
                 elif hasattr(materials[0], 'path'):
                     # 直接使用从指定目录加载的Material对象
-                    # 使用全部可用素材
-                    selected_materials = materials
+                    # 按脚本片段数量选择素材，或使用全部可用素材
+                    material_count = max(len(script_segments), len(materials))
+                    if len(materials) >= material_count:
+                        selected_materials = materials[:material_count]
+                    else:
+                        # 如果素材不足，循环重复使用
+                        selected_materials = (materials * (material_count // len(materials) + 1))[:material_count]
                     image_paths = [m.path for m in selected_materials]
                     self.logger.info(f"使用指定目录的 {len(selected_materials)} 个素材")
                 else:
@@ -575,6 +581,7 @@ class VideoFactory:
                 self.logger.info("使用自动素材管理器为每个句子从在线图库获取匹配的素材")
 
                 # 为每个句子创建临时的脚本片段对象
+                from content_sources.text_source import ScriptSegment
                 sentence_script_segments = []
                 for sent_info in sentence_segments:
                     temp_seg = ScriptSegment(
