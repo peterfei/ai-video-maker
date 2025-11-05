@@ -39,8 +39,13 @@ class MusicRecommender:
         """
         self.config = config
         self.api_key = config.get('api_key')
+        self.available = bool(self.api_key)  # 标记是否可用
+
         if not self.api_key:
-            raise ValueError("OpenAI API key is required")
+            logger.warning("OpenAI API key not provided, smart music recommendations will be disabled")
+            self.client = None
+            self.music_sources = {}
+            return
 
         self.model = config.get('model', 'gpt-4')
         self.temperature = config.get('temperature', 0.7)
@@ -191,30 +196,50 @@ class MusicRecommender:
             内容分析结果
         """
         prompt = f"""
-分析以下视频内容，提取背景音乐推荐的关键特征：
+分析以下视频内容，提取背景音乐推荐的关键特征。
 
-内容：{content[:1000]}...
+视频内容：{content[:1000]}
 
-请以JSON格式返回分析结果，包含以下字段：
-- theme: 主要主题（如 technology, nature, business, education等）
-- mood: 情绪基调（如 calm, energetic, inspiring, serious等）
-- pace: 节奏感（如 slow, medium, fast）
-- genre_preferences: 推荐的音乐类型列表（如 ambient, electronic, classical, jazz等）
-- keywords: 关键词列表（用于搜索相关音乐）
-- duration_suitable: 合适的音乐时长范围（分钟）
+请以JSON格式返回分析结果，必须包含以下字段：
+- theme: 主要主题（如 technology, nature, business, education, meditation 等）
+- mood: 情绪基调（如 calm, energetic, inspiring, serious, peaceful 等）
+- pace: 节奏感（slow, medium, fast 三选一）
+- genre_preferences: 推荐的音乐类型列表（如 ["ambient", "classical"] 等）
+- keywords: 3-5个关键词列表（如 ["meditation", "calm", "nature"]）
+- duration_suitable: 合适的音乐时长范围（如 "2-5"）
 
-只返回JSON，不要其他内容。
+示例输出：
+{{
+  "theme": "meditation",
+  "mood": "calm",
+  "pace": "slow",
+  "genre_preferences": ["ambient", "classical"],
+  "keywords": ["meditation", "breathing", "peaceful"],
+  "duration_suitable": "3-8"
+}}
+
+只返回JSON对象，不要markdown格式，不要其他文字说明。
 """
 
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "You are a music recommendation AI. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
 
             result_text = response.choices[0].message.content.strip()
+
+            # 移除可能的 markdown 代码块标记
+            if result_text.startswith('```'):
+                # 提取 ```json ... ``` 或 ``` ... ``` 中的内容
+                lines = result_text.split('\n')
+                result_text = '\n'.join(lines[1:-1]) if len(lines) > 2 else result_text
+                result_text = result_text.strip()
 
             # 尝试解析JSON
             try:
@@ -316,17 +341,47 @@ class MusicRecommender:
             mood = content_analysis.get('mood', 'calm')
             genres = content_analysis.get('genre_preferences', ['electronic'])
 
-            # 构建搜索查询
-            search_terms = keywords[:3] + [mood] + genres[:2]  # 限制关键词数量
-            query = " ".join(search_terms)
+            # 构建智能搜索查询 - 基于AI分析的情绪和类型
+            # 优先使用情绪和类型，因为它们更相关
+            search_terms = []
 
-            # Jamendo API参数
+            # 添加情绪词（最重要）
+            if mood:
+                mood_mapping = {
+                    'calm': 'calm peaceful ambient',
+                    'peaceful': 'peaceful calm relaxing',
+                    'inspiring': 'inspiring motivational uplifting',
+                    'energetic': 'energetic upbeat dynamic',
+                    'happy': 'happy cheerful positive',
+                    'sad': 'sad melancholic emotional',
+                    'serious': 'serious dramatic intense',
+                }
+                search_terms.append(mood_mapping.get(mood, mood))
+
+            # 添加类型（次要） - 过滤掉可能导致0结果的类型
+            # Jamendo 常见类型：ambient, classical, electronic, jazz, rock, pop
+            supported_genres = ['ambient', 'classical', 'electronic', 'jazz', 'rock', 'pop']
+            if genres:
+                # 只添加Jamendo支持的类型
+                filtered_genres = [g for g in genres[:2] if g.lower() in supported_genres]
+                search_terms.extend(filtered_genres)
+
+            # 构建查询字符串
+            query = " ".join(search_terms).strip()
+
+            # 如果查询为空，使用默认查询
+            if not query:
+                query = "instrumental background music"
+
+            # Jamendo API参数 - 使用公开的client_id
+            # 注意：这是一个演示用的client_id，生产环境应该申请自己的
             params = {
-                'client_id': source_config.get('client_id', 'your_jamendo_client_id'),
+                'client_id': source_config.get('client_id', '56d30c95'),  # 公开的测试client_id
                 'format': 'json',
                 'limit': '20',  # 获取更多结果用于筛选
                 'include': 'musicinfo',
-                'groupby': 'artist_id',  # 按艺术家分组避免重复
+                'tags': query,  # 使用tags而不是search，更准确
+                'imagesize': '50',  # 减少数据传输
             }
 
             if query:
@@ -378,6 +433,11 @@ class MusicRecommender:
                             genre = self._map_jamendo_genre(track.get('genre', 'electronic'))
                             mood_tag = self._infer_mood_from_title_and_genre(track_name, genre)
 
+                            # 确保 copyright_status 是 CopyrightStatus 枚举
+                            copyright_status = source_config.get("copyright_status", CopyrightStatus.CREATIVE_COMMONS)
+                            if isinstance(copyright_status, str):
+                                copyright_status = CopyrightStatus.CREATIVE_COMMONS
+
                             recommendation = MusicRecommendation(
                                 title=track_name,
                                 artist=artist_name,
@@ -385,7 +445,7 @@ class MusicRecommender:
                                 duration=duration_sec,
                                 genre=genre,
                                 mood=mood_tag,
-                                copyright_status=source_config["copyright_status"],
+                                copyright_status=copyright_status,
                                 confidence_score=0.85,  # Jamendo音乐质量较高
                                 source="jamendo",
                                 license_url=f"https://www.jamendo.com/track/{track_id}",
@@ -509,64 +569,83 @@ class MusicRecommender:
         duration: float,
         criteria: MusicSearchCriteria
     ) -> List[MusicRecommendation]:
-        """生成默认的fallback推荐，当所有API都失败时使用"""
+        """生成默认的fallback推荐，使用本地音乐文件"""
         recommendations = []
 
         genres = content_analysis.get('genre_preferences', ['electronic'])
         mood = content_analysis.get('mood', 'neutral')
 
-        # 生成多种类型的音乐推荐
-        fallback_music_data = [
-            {
-                "title": f"{mood.title()} Ambient Track",
-                "artist": "Free Music Library",
-                "url": "https://example.com/free-music-1.mp3",
-                "duration": min(duration, 240),
-                "genre": genres[0] if genres else "ambient",
-                "mood": mood,
-                "source": "fallback",
-                "copyright_status": CopyrightStatus.ROYALTY_FREE,
-            },
-            {
-                "title": f"Inspiring {mood.title()} Journey",
-                "artist": "Creative Commons Collection",
-                "url": "https://example.com/free-music-2.mp3",
-                "duration": min(duration * 0.9, 210),
-                "genre": genres[1] if len(genres) > 1 else genres[0],
-                "mood": mood,
-                "source": "fallback",
-                "copyright_status": CopyrightStatus.CREATIVE_COMMONS,
-            },
-            {
-                "title": f"Calm {mood.title()} Atmosphere",
-                "artist": "Public Domain Sounds",
-                "url": "https://example.com/free-music-3.mp3",
-                "duration": min(duration * 1.1, 270),
-                "genre": "ambient",
-                "mood": "calm",
-                "source": "fallback",
-                "copyright_status": CopyrightStatus.PUBLIC_DOMAIN,
-            },
-        ]
+        # 扫描本地音乐目录
+        from pathlib import Path
+        music_dir = Path("assets/music")
+        local_music_files = []
 
-        for music_data in fallback_music_data:
+        if music_dir.exists():
+            # 支持的音频格式
+            audio_extensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac']
+            for ext in audio_extensions:
+                local_music_files.extend(music_dir.glob(f"*{ext}"))
+
+        if not local_music_files:
+            logger.warning("No local music files found in assets/music/")
+            return []
+
+        logger.info(f"Found {len(local_music_files)} local music files")
+
+        # 为每个本地音乐文件创建推荐
+        for music_file in local_music_files[:5]:  # 限制最多5个
             try:
+                # 获取音频文件信息
+                from pydub import AudioSegment
+                try:
+                    audio = AudioSegment.from_file(str(music_file))
+                    file_duration = len(audio) / 1000.0  # 转换为秒
+                except:
+                    # 如果无法读取音频信息，使用估算值
+                    file_duration = duration
+
+                # 根据文件名推测音乐类型和情绪
+                filename = music_file.stem.lower()
+
+                # 简单的关键词映射
+                inferred_genre = "ambient"
+                inferred_mood = mood
+
+                if any(word in filename for word in ['piano', 'classical']):
+                    inferred_genre = "classical"
+                    inferred_mood = "calm"
+                elif any(word in filename for word in ['electronic', 'synth']):
+                    inferred_genre = "electronic"
+                    inferred_mood = "energetic"
+                elif any(word in filename for word in ['jazz']):
+                    inferred_genre = "jazz"
+                    inferred_mood = "relaxed"
+                elif any(word in filename for word in ['ambient', 'calm']):
+                    inferred_genre = "ambient"
+                    inferred_mood = "calm"
+
                 recommendation = MusicRecommendation(
-                    title=music_data["title"],
-                    artist=music_data["artist"],
-                    url=music_data["url"],
-                    duration=music_data["duration"],
-                    genre=music_data["genre"],
-                    mood=music_data["mood"],
-                    copyright_status=music_data["copyright_status"],
-                    confidence_score=0.6,  # fallback推荐置信度较低
-                    source=music_data["source"],
+                    title=f"{music_file.stem.replace('_', ' ').title()}",
+                    artist="Local Music Library",
+                    url=str(music_file.absolute()),  # 使用绝对路径
+                    duration=file_duration,
+                    genre=inferred_genre,
+                    mood=inferred_mood,
+                    copyright_status=CopyrightStatus.ROYALTY_FREE,
+                    confidence_score=0.8,  # 本地文件置信度较高
+                    source="local",
                 )
                 recommendations.append(recommendation)
-            except Exception as e:
-                logger.warning(f"Failed to create fallback recommendation: {e}")
 
-        logger.info(f"Generated {len(recommendations)} fallback recommendations")
+            except Exception as e:
+                logger.warning(f"Failed to process local music file {music_file}: {e}")
+                continue
+
+        if recommendations:
+            logger.info(f"Generated {len(recommendations)} local music recommendations")
+        else:
+            logger.warning("Failed to generate any local music recommendations")
+
         return recommendations
 
     async def _search_pixabay(

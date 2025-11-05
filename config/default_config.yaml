@@ -83,15 +83,15 @@ export:
   quality: high
 music:
   # 基础音乐设置
-  default_track: assets/music/default.mp3
-  enabled: false                       # 暂时禁用音乐功能
+  default_track: assets/music/piano.mp3
+  enabled: true                        # 启用智能音乐库
   fade_in: 2.0
   fade_out: 3.0
   loop: true
   volume: 0.2
 
   # 智能音乐选择设置
-  auto_select: false                   # 禁用智能音乐选择
+  auto_select: true                    # 启用智能音乐选择
   copyright_only: true                 # 只使用无版权音乐
 
   # OpenAI配置
@@ -127,7 +127,7 @@ music:
     jamendo:
       enabled: true
       copyright_status: "creative_commons"
-      client_id: "your_jamendo_client_id"  # 申请地址：https://devportal.jamendo.com/
+      client_id: ${CLIENTID}  # 从 .env 读取 Jamendo client ID
     pixabay:
       enabled: true
       copyright_status: "royalty_free"

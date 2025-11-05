@@ -567,7 +567,8 @@ class MusicSearchCriteria:
             self.moods = ["calm", "inspiring", "neutral"]
 
         if self.sources is None:
-            self.sources = ["freemusicarchive", "ccsearch", "epidemicsound"]
+            # 优先使用 Jamendo（从 .env 读取配置）
+            self.sources = ["jamendo", "freemusicarchive", "ccsearch", "epidemicsound"]
 
         if self.max_duration is not None and self.max_duration <= 0:
             raise ValueError("max_duration must be positive")

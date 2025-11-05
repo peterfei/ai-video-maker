@@ -7,6 +7,10 @@ import os
 import yaml
 from typing import Any, Dict
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 
 class ConfigLoader:

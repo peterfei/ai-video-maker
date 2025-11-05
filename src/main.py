@@ -178,18 +178,101 @@ class VideoFactory:
             # 4. 添加背景音乐
             self.logger.info("步骤 4/7: 添加背景音乐")
             if self.config.get('music.basic_enabled', True):
-                music_path = self.config.get('music.default_track')
-                if music_path and Path(music_path).exists():
-                    final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
-                    self.audio_mixer.mix_voice_and_music(
-                        str(audio_path),
-                        music_path,
-                        str(final_audio_path)
-                    )
-                    self.logger.info("背景音乐已添加")
+                # 检查是否启用智能音乐选择
+                if (self.music_enabled and self.music_library and
+                    self.config.get('music.auto_select', False)):
+                    # 使用智能音乐选择
+                    self.logger.info("正在分析内容并选择合适的背景音乐...")
+                    try:
+                        # 合并所有脚本文本用于分析
+                        full_content = " ".join(seg.text for seg in script_segments)
+
+                        # 异步调用音乐推荐
+                        import asyncio
+                        best_music = asyncio.run(
+                            self.music_library.get_music_for_content(full_content, audio_duration)
+                        )
+
+                        if best_music:
+                            self.logger.info(f"选择了背景音乐: {best_music.title} ({best_music.artist}) - {best_music.mood}/{best_music.genre}")
+
+                            # 从库中获取本地文件路径
+                            # 检查是否有缓存的条目
+                            local_music_path = None
+                            if best_music.url in self.music_library.entries:
+                                entry = self.music_library.entries[best_music.url]
+                                if Path(entry.local_path).exists():
+                                    local_music_path = entry.local_path
+                                    entry.mark_as_used()
+                                    self.music_library._save_library()
+
+                            if local_music_path:
+                                final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                                self.audio_mixer.mix_voice_and_music(
+                                    str(audio_path),
+                                    local_music_path,
+                                    str(final_audio_path)
+                                )
+                                self.logger.info("智能背景音乐已混合")
+                            else:
+                                # 下载失败，使用默认音乐
+                                self.logger.warning("智能音乐下载失败，使用默认音乐")
+                                music_path = self.config.get('music.default_track')
+                                if music_path and Path(music_path).exists():
+                                    final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                                    self.audio_mixer.mix_voice_and_music(
+                                        str(audio_path),
+                                        music_path,
+                                        str(final_audio_path)
+                                    )
+                                    self.logger.info("默认背景音乐已添加")
+                                else:
+                                    final_audio_path = audio_path
+                                    self.logger.info("未找到背景音乐文件，使用纯语音")
+                        else:
+                            # 没有找到合适的音乐，使用默认音乐
+                            self.logger.info("未找到合适的智能音乐推荐，使用默认音乐")
+                            music_path = self.config.get('music.default_track')
+                            if music_path and Path(music_path).exists():
+                                final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                                self.audio_mixer.mix_voice_and_music(
+                                    str(audio_path),
+                                    music_path,
+                                    str(final_audio_path)
+                                )
+                                self.logger.info("默认背景音乐已添加")
+                            else:
+                                final_audio_path = audio_path
+                                self.logger.info("未找到背景音乐文件，使用纯语音")
+                    except Exception as e:
+                        self.logger.warning(f"智能音乐选择失败: {e}，使用默认音乐")
+                        # 回退到默认音乐
+                        music_path = self.config.get('music.default_track')
+                        if music_path and Path(music_path).exists():
+                            final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                            self.audio_mixer.mix_voice_and_music(
+                                str(audio_path),
+                                music_path,
+                                str(final_audio_path)
+                            )
+                            self.logger.info("默认背景音乐已添加")
+                        else:
+                            final_audio_path = audio_path
+                            self.logger.info("未找到背景音乐文件，使用纯语音")
                 else:
-                    final_audio_path = audio_path
-                    self.logger.info("未找到背景音乐文件，使用纯语音")
+                    # 使用基础音乐功能（默认音乐）
+                    music_path = self.config.get('music.default_track')
+                    if music_path and Path(music_path).exists():
+                        final_audio_path = temp_dir / f"final_audio_{uuid.uuid4().hex[:8]}.mp3"
+                        self.audio_mixer.mix_voice_and_music(
+                            str(audio_path),
+                            music_path,
+                            str(final_audio_path)
+                        )
+                        self.logger.info("背景音乐已添加")
+                    else:
+                        final_audio_path = audio_path
+                        self.logger.info("未找到背景音乐文件，使用纯语音")
             else:
                 final_audio_path = audio_path
                 self.logger.info("背景音乐已禁用")
