@@ -591,20 +591,27 @@ class MusicRecommender:
 
         # 扫描本地音乐目录
         from pathlib import Path
+        import re
         music_dir = Path("assets/music")
         local_music_files = []
 
         if music_dir.exists():
             # 支持的音频格式
             audio_extensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac']
+            # 匹配哈希命名的文件（8位十六进制_source.ext），这些是下载的文件
+            hash_pattern = re.compile(r'^[0-9a-f]{8}_\w+\.\w+$')
+
             for ext in audio_extensions:
-                local_music_files.extend(music_dir.glob(f"*{ext}"))
+                for file in music_dir.glob(f"*{ext}"):
+                    # 排除哈希命名的下载文件和元数据文件
+                    if not hash_pattern.match(file.name) and not file.name.startswith('.'):
+                        local_music_files.append(file)
 
         if not local_music_files:
-            logger.warning("No local music files found in assets/music/")
+            logger.warning("No local music files found in assets/music/ (excluding downloaded files)")
             return []
 
-        logger.info(f"Found {len(local_music_files)} local music files")
+        logger.info(f"Found {len(local_music_files)} local music files (excluding downloaded files)")
 
         # 为每个本地音乐文件创建推荐
         for music_file in local_music_files[:5]:  # 限制最多5个

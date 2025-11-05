@@ -66,18 +66,27 @@ class MusicLibrary:
             with open(self.library_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
+            loaded_count = 0
+            skipped_count = 0
             for entry_data in data.get('entries', []):
                 try:
                     entry = MusicLibraryEntry.from_dict(entry_data)
                     # 验证本地文件是否存在
                     if Path(entry.local_path).exists():
                         self.entries[entry.recommendation.url] = entry
+                        loaded_count += 1
                     else:
-                        logger.warning(f"Local file not found: {entry.local_path}")
+                        logger.warning(f"Skipping invalid entry - local file not found: {entry.local_path}")
+                        skipped_count += 1
                 except Exception as e:
                     logger.warning(f"Failed to load library entry: {e}")
+                    skipped_count += 1
 
-            logger.info(f"Loaded {len(self.entries)} valid entries from library")
+            logger.info(f"Loaded {loaded_count} valid entries from library ({skipped_count} skipped)")
+
+            # 如果有无效条目被跳过，保存清理后的库
+            if skipped_count > 0:
+                self._save_library()
 
         except Exception as e:
             logger.error(f"Error loading music library: {e}")

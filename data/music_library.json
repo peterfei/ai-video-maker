@@ -1,32 +1,32 @@
 {
   "metadata": {
     "version": "1.0",
-    "last_updated": "2025-11-05T12:06:36.864729",
+    "last_updated": "2025-11-05T14:47:38.332944",
     "total_entries": 1
   },
   "entries": [
     {
       "recommendation": {
-        "title": "447Ffb11 Jamendo",
-        "artist": "Local Music Library",
-        "url": "/Users/mac/project/ai-workflow/video-factory/assets/music/447ffb11_jamendo.mp3",
-        "duration": 355.32,
-        "genre": "ambient",
+        "title": "Uplifting Fashion",
+        "artist": "Aleksandr Vladimirov",
+        "url": "https://storage.jamendo.com/download/track/2206591/mp32/",
+        "duration": 178.0,
+        "genre": "electronic",
         "mood": "inspiring",
-        "copyright_status": "royalty_free",
-        "confidence_score": 0.8,
-        "source": "local",
-        "license_url": null,
+        "copyright_status": "creative_commons",
+        "confidence_score": 0.85,
+        "source": "jamendo",
+        "license_url": "https://www.jamendo.com/track/2206591",
         "tags": [],
         "file_size": null,
         "bitrate": null,
         "sample_rate": null,
-        "created_at": "2025-11-05T11:34:22.751198"
+        "created_at": "2025-11-05T14:47:38.331137"
       },
-      "local_path": "/Users/mac/project/ai-workflow/video-factory/assets/music/447ffb11_jamendo.mp3",
-      "downloaded_at": "2025-11-05T11:34:22.966172",
-      "last_used": "2025-11-05T12:06:36.864727",
-      "use_count": 4,
+      "local_path": "assets/music/4805d913_jamendo.mp3",
+      "downloaded_at": "2025-11-05T14:47:38.332912",
+      "last_used": null,
+      "use_count": 0,
       "file_hash": null
     }
   ]
