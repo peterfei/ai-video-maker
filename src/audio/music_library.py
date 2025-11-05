@@ -46,7 +46,8 @@ class MusicLibrary:
         self.library_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 初始化组件
-        self.recommender = MusicRecommender(config.get('openai', {}))
+        # 传递完整的music配置，让MusicRecommender可以访问sources配置
+        self.recommender = MusicRecommender(config)
         self.downloader = MusicDownloader(config.get('download', {}))
 
         # 加载音乐库
@@ -117,7 +118,7 @@ class MusicLibrary:
             criteria: 搜索条件
 
         Returns:
-            推荐的音乐，如果没有找到则返回None
+            推荐的音乐（包含local_path属性），如果没有找到则返回None
         """
         try:
             # 1. 在本地库中搜索
@@ -126,7 +127,10 @@ class MusicLibrary:
                 logger.info(f"Found matching music in library: {local_match.recommendation.title}")
                 local_match.mark_as_used()
                 self._save_library()
-                return local_match.recommendation
+                # 将本地路径添加到推荐对象上（临时属性）
+                recommendation = local_match.recommendation
+                recommendation.local_path = local_match.local_path
+                return recommendation
 
             # 2. 如果缓存启用且没有找到，从远程获取
             if not self.cache_enabled:
@@ -144,6 +148,8 @@ class MusicLibrary:
             local_path = await self._download_and_cache(best_recommendation)
 
             if local_path:
+                # 将本地路径添加到推荐对象上（临时属性）
+                best_recommendation.local_path = local_path
                 return best_recommendation
             else:
                 logger.warning("Failed to download recommended music")

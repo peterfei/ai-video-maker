@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "last_updated": "2025-11-05T12:06:36.864729",
+    "total_entries": 1
+  },
+  "entries": [
+    {
+      "recommendation": {
+        "title": "447Ffb11 Jamendo",
+        "artist": "Local Music Library",
+        "url": "/Users/mac/project/ai-workflow/video-factory/assets/music/447ffb11_jamendo.mp3",
+        "duration": 355.32,
+        "genre": "ambient",
+        "mood": "inspiring",
+        "copyright_status": "royalty_free",
+        "confidence_score": 0.8,
+        "source": "local",
+        "license_url": null,
+        "tags": [],
+        "file_size": null,
+        "bitrate": null,
+        "sample_rate": null,
+        "created_at": "2025-11-05T11:34:22.751198"
+      },
+      "local_path": "/Users/mac/project/ai-workflow/video-factory/assets/music/447ffb11_jamendo.mp3",
+      "downloaded_at": "2025-11-05T11:34:22.966172",
+      "last_used": "2025-11-05T12:06:36.864727",
+      "use_count": 4,
+      "file_hash": null
+    }
+  ]
+}

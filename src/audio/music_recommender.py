@@ -35,10 +35,13 @@ class MusicRecommender:
         初始化推荐引擎
 
         Args:
-            config: 配置字典，包含OpenAI相关设置
+            config: 配置字典，包含OpenAI相关设置和音乐源配置
         """
         self.config = config
-        self.api_key = config.get('api_key')
+
+        # 从config中提取OpenAI配置
+        openai_config = config.get('openai', {})
+        self.api_key = openai_config.get('api_key')
         self.available = bool(self.api_key)  # 标记是否可用
 
         if not self.api_key:
@@ -47,9 +50,9 @@ class MusicRecommender:
             self.music_sources = {}
             return
 
-        self.model = config.get('model', 'gpt-4')
-        self.temperature = config.get('temperature', 0.7)
-        self.max_tokens = config.get('max_tokens', 1000)
+        self.model = openai_config.get('model', 'gpt-4')
+        self.temperature = openai_config.get('temperature', 0.7)
+        self.max_tokens = openai_config.get('max_tokens', 1000)
 
         # 初始化OpenAI客户端
         self.client = AsyncOpenAI(api_key=self.api_key)
@@ -328,7 +331,7 @@ class MusicRecommender:
         source_config: Dict[str, Any],
         content_analysis: Dict[str, Any],
         duration: float,
-        criteria: MusicSearchCriteria
+        criteria: Optional[MusicSearchCriteria]
     ) -> List[MusicRecommendation]:
         """
         从Jamendo搜索音乐 (免费API，无需API key)
@@ -341,55 +344,57 @@ class MusicRecommender:
             mood = content_analysis.get('mood', 'calm')
             genres = content_analysis.get('genre_preferences', ['electronic'])
 
-            # 构建智能搜索查询 - 基于AI分析的情绪和类型
-            # 优先使用情绪和类型，因为它们更相关
-            search_terms = []
+            # 构建搜索查询 - 使用更简单、宽松的条件
+            # Jamendo API对复杂查询支持有限，使用简单关键词效果更好
 
-            # 添加情绪词（最重要）
+            # 优先使用情绪词（选择最重要的一个）
+            search_query = None
             if mood:
                 mood_mapping = {
-                    'calm': 'calm peaceful ambient',
-                    'peaceful': 'peaceful calm relaxing',
-                    'inspiring': 'inspiring motivational uplifting',
-                    'energetic': 'energetic upbeat dynamic',
-                    'happy': 'happy cheerful positive',
-                    'sad': 'sad melancholic emotional',
-                    'serious': 'serious dramatic intense',
+                    'calm': 'calm',
+                    'peaceful': 'peaceful',
+                    'inspiring': 'uplifting',
+                    'energetic': 'energetic',
+                    'happy': 'happy',
+                    'sad': 'melancholic',
+                    'serious': 'dramatic',
                 }
-                search_terms.append(mood_mapping.get(mood, mood))
+                search_query = mood_mapping.get(mood, mood)
 
-            # 添加类型（次要） - 过滤掉可能导致0结果的类型
-            # Jamendo 常见类型：ambient, classical, electronic, jazz, rock, pop
-            supported_genres = ['ambient', 'classical', 'electronic', 'jazz', 'rock', 'pop']
-            if genres:
-                # 只添加Jamendo支持的类型
-                filtered_genres = [g for g in genres[:2] if g.lower() in supported_genres]
-                search_terms.extend(filtered_genres)
+            # 如果没有情绪，使用类型
+            if not search_query and genres:
+                # Jamendo 常见类型：ambient, classical, electronic, jazz, rock, pop
+                supported_genres = ['ambient', 'classical', 'electronic', 'jazz', 'rock', 'pop']
+                for genre in genres:
+                    if genre.lower() in supported_genres:
+                        search_query = genre
+                        break
 
-            # 构建查询字符串
-            query = " ".join(search_terms).strip()
+            # 如果还是没有，使用默认查询
+            if not search_query:
+                search_query = "instrumental"
 
-            # 如果查询为空，使用默认查询
-            if not query:
-                query = "instrumental background music"
+            query = search_query
 
-            # Jamendo API参数 - 使用公开的client_id
-            # 注意：这是一个演示用的client_id，生产环境应该申请自己的
+            # Jamendo API参数 - 使用配置的client_id
+            client_id = source_config.get('client_id', '6b8e1fa9')
+            logger.info(f"Using Jamendo client_id: {client_id[:4]}**** (from config)")
+
+            # 使用简化的参数，避免过度过滤
             params = {
-                'client_id': source_config.get('client_id', '56d30c95'),  # 公开的测试client_id
+                'client_id': client_id,
                 'format': 'json',
                 'limit': '20',  # 获取更多结果用于筛选
-                'include': 'musicinfo',
-                'tags': query,  # 使用tags而不是search，更准确
                 'imagesize': '50',  # 减少数据传输
             }
 
+            # 只使用search参数，不使用tags（tags过滤太严格）
             if query:
                 params['search'] = query
 
-            # 添加时长过滤（如果有的话）
-            if criteria.min_duration:
-                params['duration-between'] = f"{criteria.min_duration}-{criteria.max_duration or 600}"
+            # 暂时不使用时长过滤，避免结果为空
+            # if criteria and criteria.min_duration:
+            #     params['duration-between'] = f"{criteria.min_duration}-{criteria.max_duration or 600}"
 
             api_url = f"{source_config['api_url']}tracks/"
             logger.info(f"Searching Jamendo API: {api_url} with query: {query}")
@@ -400,23 +405,32 @@ class MusicRecommender:
                 async with session.get(api_url, params=params) as response:
                     if response.status != 200:
                         logger.warning(f"Jamendo API error: HTTP {response.status}")
+                        logger.warning(f"Request URL: {api_url}")
+                        logger.warning(f"Request params: {params}")
                         return []
 
                     data = await response.json()
-                    tracks = data.get('results', [])
+                    logger.debug(f"Jamendo API raw response: {data}")
 
-                            # 检查API响应是否成功
+                    # 检查API响应是否成功
                     headers = data.get('headers', {})
                     if headers.get('status') == 'failed':
                         error_msg = headers.get('error_message', 'Unknown error')
-                        logger.warning(f"Jamendo API failed: {error_msg}")
+                        code = headers.get('code', 'unknown')
+                        logger.error(f"Jamendo API failed: {error_msg} (code: {code})")
+                        logger.error(f"Request URL: {api_url}")
+                        logger.error(f"Request params: {params}")
                         # 如果是认证错误，提供有用的错误信息
                         if 'client' in error_msg.lower() and 'id' in error_msg.lower():
-                            logger.warning("Jamendo API需要有效的client_id，请访问 https://devportal.jamendo.com/ 申请")
+                            logger.error("Jamendo API需要有效的client_id，请访问 https://devportal.jamendo.com/ 申请")
                         return []
 
                     tracks = data.get('results', [])
-                    logger.info(f"Jamendo returned {len(tracks)} tracks")
+                    logger.info(f"Jamendo API returned {len(tracks)} tracks for query: {query}")
+
+                    if len(tracks) == 0:
+                        logger.warning(f"Jamendo API返回0个结果，将使用fallback推荐")
+                        logger.warning(f"搜索条件 - query: {query}, params: {params}")
 
                     for track in tracks[:10]:  # 限制结果数量
                         try:
@@ -499,7 +513,7 @@ class MusicRecommender:
         self,
         content_analysis: Dict[str, Any],
         duration: float,
-        criteria: MusicSearchCriteria
+        criteria: Optional[MusicSearchCriteria]
     ) -> List[MusicRecommendation]:
         """当Jamendo API不可用时，提供模拟推荐作为fallback"""
         recommendations = []
@@ -743,7 +757,7 @@ class MusicRecommender:
 
         for rec in recommendations:
             # 版权检查
-            if criteria.copyright_only and not rec.is_safe_to_use:
+            if criteria and criteria.copyright_only and not rec.is_safe_to_use:
                 continue
 
             # 类型匹配度评分

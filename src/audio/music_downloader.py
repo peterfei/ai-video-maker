@@ -81,6 +81,16 @@ class MusicDownloader:
             raise RuntimeError("Downloader must be used as async context manager")
 
         try:
+            # 0. 检查URL是否是本地文件路径
+            if self._is_local_file(recommendation.url):
+                local_file = Path(recommendation.url)
+                if local_file.exists() and local_file.is_file():
+                    logger.info(f"Using local music file: {local_file}")
+                    return str(local_file)
+                else:
+                    logger.warning(f"Local file not found: {local_file}")
+                    return None
+
             # 1. 生成本地文件路径
             local_path = self._generate_local_path(recommendation)
 
@@ -116,6 +126,33 @@ class MusicDownloader:
         except Exception as e:
             logger.error(f"Error downloading music {recommendation.title}: {e}")
             return None
+
+    def _is_local_file(self, url: str) -> bool:
+        """
+        检查URL是否是本地文件路径
+
+        Args:
+            url: URL字符串
+
+        Returns:
+            是否是本地文件路径
+        """
+        # 检查是否是HTTP/HTTPS URL
+        if url.startswith(('http://', 'https://')):
+            return False
+
+        # 检查是否包含URL scheme
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.scheme not in ('file', ''):
+            return False
+
+        # 检查是否是有效的文件路径
+        try:
+            path = Path(url)
+            # 如果路径是绝对路径或存在，则认为是本地文件
+            return path.is_absolute() or path.exists()
+        except:
+            return False
 
     def _generate_local_path(self, recommendation: MusicRecommendation) -> Path:
         """

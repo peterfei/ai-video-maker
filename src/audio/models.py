@@ -632,7 +632,6 @@ class MusicLibraryEntry:
         self.last_used = datetime.now()
         self.use_count += 1
 
-    @property
     def is_expired(self, max_age_days: int = 30) -> bool:
         """检查是否过期"""
         if self.last_used is None:
