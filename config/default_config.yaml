@@ -162,6 +162,7 @@ stt:
 subtitle:
   adaptive_font_size: true
   align: center
+  uniform_font_size: false  # 启用后所有字幕使用完全相同的字体大小
   duration_per_char: 0.3
   enabled: true
   font_color: white

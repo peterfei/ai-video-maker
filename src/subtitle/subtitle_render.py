@@ -171,34 +171,19 @@ class SubtitleRenderer:
                 # 清理和截断字幕文本，确保不会太长
                 text = self._clean_subtitle_text(segment.text)
 
-                # 创建文本片段 - 使用字体路径以确保中文正确显示
+                # 获取统一配置
+                config = self._get_text_clip_config(text, video_size[0])
+
+                # 创建文本片段 - 使用统一配置
                 try:
-                    txt_clip = TextClip(
-                        text,
-                        fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
-                        font=self.font,  # 使用字体路径
-                        color=self.font_color,
-                        stroke_color=self.stroke_color,
-                        stroke_width=self.stroke_width,
-                        method='label',
-                        size=(video_size[0] * 0.9, None),
-                        align=self.align
-                    )
+                    txt_clip = TextClip(text, **config)
                 except Exception as e:
                     # 如果label方法失败，尝试caption方法
                     self.logger.warning(f"使用label方法创建字幕失败，尝试caption方法: {text[:20]}... ({e})")
                     try:
-                        txt_clip = TextClip(
-                            text,
-                            fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
-                            font=self.font,  # 使用字体路径
-                            color=self.font_color,
-                            stroke_color=self.stroke_color,
-                            stroke_width=self.stroke_width,
-                            method='caption',
-                            size=(video_size[0] * 0.9, None),
-                            align=self.align
-                        )
+                        caption_config = config.copy()
+                        caption_config['method'] = 'caption'
+                        txt_clip = TextClip(text, **caption_config)
                     except Exception as e2:
                         # 如果都失败了，跳过这个字幕
                         self.logger.error(f"字幕创建完全失败，跳过: {text[:30]}... (label: {e}, caption: {e2})")
@@ -256,6 +241,70 @@ class SubtitleRenderer:
 
         return text.strip()
 
+    def _get_text_clip_config(self, text: str, video_width: int) -> Dict[str, Any]:
+        """
+        获取统一的 TextClip 配置参数
+
+        Args:
+            text: 字幕文本
+            video_width: 视频宽度
+
+        Returns:
+            TextClip 配置字典
+        """
+        # 基于配置决定是否启用统一字体大小
+        uniform_font_size = self.config.get('uniform_font_size', False)
+
+        # 计算字体大小
+        if uniform_font_size:
+            # 完全统一字体大小，忽略内容差异
+            font_size = self.font_sizes['moviepy_size']
+        else:
+            # 内容感知字体调整
+            font_size = self._adjust_font_for_content(text, self.font_sizes['moviepy_size'])
+
+        # 计算固定字幕高度，确保视觉一致性
+        # 基于字体大小和配置的文本高度比例计算固定高度
+        font_size_px = int(font_size * 1.5)  # 字体大小转换为像素高度的估算
+        fixed_height = max(font_size_px, int(self.config.get('max_text_height_ratio', 0.12) * 1080))  # 至少基于字体大小
+
+        return {
+            'fontsize': font_size,
+            'font': self.font,
+            'color': self.font_color,
+            'stroke_color': self.stroke_color,
+            'stroke_width': self.stroke_width,
+            'method': 'label',  # 统一使用 label 方法
+            'size': (video_width * 0.9, fixed_height),  # 使用固定高度而不是None
+            'align': self.align
+        }
+
+    def _adjust_font_for_content(self, text: str, base_size: int) -> int:
+        """
+        根据文本内容调整字体大小
+
+        Args:
+            text: 字幕文本
+            base_size: 基础字体大小
+
+        Returns:
+            调整后的字体大小
+        """
+        if not text:
+            return base_size
+
+        # 检查特殊字符比例
+        special_chars = sum(1 for c in text if not c.isalnum() and not c.isspace() and c not in ['，', '。', '！', '？', '：', '；', '（', '）', '【', '】', '《', '》'])
+        special_ratio = special_chars / len(text) if text else 0
+
+        # 对于高特殊字符比例的文本，略微减小字体以避免渲染问题
+        if special_ratio > 0.2:
+            adjusted_size = max(base_size - 2, self.font_size_manager.default_config.get('min_font_size', 24))
+            self.logger.debug(f"高特殊字符比例文本 ({special_ratio:.2f})，字体大小调整: {base_size} -> {adjusted_size}")
+            return adjusted_size
+
+        return base_size
+
     def _calculate_position(
         self,
         text_size: Tuple[int, int],
@@ -291,6 +340,62 @@ class SubtitleRenderer:
 
         return (x, y)
 
+    def _validate_font_consistency(self, segments: List[Any]) -> Dict[str, Any]:
+        """
+        验证字幕片段的字体大小一致性
+
+        Args:
+            segments: 字幕片段列表
+
+        Returns:
+            验证结果字典
+        """
+        if not segments:
+            return {'is_valid': True, 'warnings': [], 'metrics': {}}
+
+        font_sizes = []
+        warnings = []
+
+        for segment in segments:
+            try:
+                # 获取该片段使用的字体大小
+                text = self._clean_subtitle_text(segment.text)
+                config = self._get_text_clip_config(text, 1920)  # 使用默认宽度进行估算
+                font_sizes.append(config['fontsize'])
+            except Exception as e:
+                warnings.append(f"无法获取片段字体大小: {segment.text[:30]}... ({e})")
+
+        if font_sizes:
+            min_size = min(font_sizes)
+            max_size = max(font_sizes)
+            avg_size = sum(font_sizes) / len(font_sizes)
+
+            # 检查一致性
+            size_range = max_size - min_size
+            if size_range > 4:  # 允许4px的差异
+                warnings.append(f"字体大小差异过大: 最小{min_size}, 最大{max_size}, 范围{size_range}")
+
+            metrics = {
+                'min_size': min_size,
+                'max_size': max_size,
+                'avg_size': avg_size,
+                'size_range': size_range,
+                'sample_count': len(font_sizes)
+            }
+
+            if warnings:
+                self.logger.warning(f"字体大小一致性检查发现问题: {'; '.join(warnings)}")
+            else:
+                self.logger.debug(f"字体大小一致性检查通过: {len(font_sizes)}个片段, 大小范围{min_size}-{max_size}")
+        else:
+            metrics = {'sample_count': 0}
+
+        return {
+            'is_valid': len(warnings) == 0,
+            'warnings': warnings,
+            'metrics': metrics
+        }
+
     def render_on_video(
         self,
         video_clip: Any,
@@ -319,6 +424,16 @@ class SubtitleRenderer:
             return video_clip
 
         self.logger.info(f"成功创建 {len(text_clips)} 个字幕文本片段")
+
+        # 验证字体大小一致性
+        consistency_check = self._validate_font_consistency(subtitle_segments)
+        if not consistency_check['is_valid']:
+            self.logger.warning(f"字幕字体大小一致性检查失败: {consistency_check['warnings']}")
+        else:
+            metrics = consistency_check['metrics']
+            if metrics.get('sample_count', 0) > 0:
+                self.logger.info(f"字体大小一致性验证通过: {metrics['sample_count']}个片段, "
+                               f"大小范围{metrics['min_size']}-{metrics['max_size']}px")
 
         # 检查字幕数量，如果太多可能影响性能
         if len(text_clips) > 50:
@@ -505,34 +620,19 @@ class SubtitleRenderer:
                 # 清理字幕文本
                 text = self._clean_subtitle_text(segment.text)
                 
+                # 获取统一配置
+                config = self._get_text_clip_config(text, video_clip.size[0])
+
                 try:
-                    # 使用与 create_text_clips() 一致的参数
-                    txt_clip = TextClip(
-                        text,
-                        fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
-                        font=self.font,
-                        color=self.font_color,
-                        stroke_color=self.stroke_color,
-                        stroke_width=self.stroke_width,
-                        method='label',
-                        size=(video_clip.size[0] * 0.9, None),
-                        align=self.align
-                    )
+                    # 使用统一配置创建字幕
+                    txt_clip = TextClip(text, **config)
                 except Exception as e:
                     # 如果label方法失败，尝试caption方法
                     self.logger.warning(f"使用label方法创建字幕失败，尝试caption方法: {text[:20]}... ({e})")
                     try:
-                        txt_clip = TextClip(
-                            text,
-                            fontsize=self.font_sizes['moviepy_size'],  # 使用标准化字体大小
-                            font=self.font,
-                            color=self.font_color,
-                            stroke_color=self.stroke_color,
-                            stroke_width=self.stroke_width,
-                            method='caption',
-                            size=(video_clip.size[0] * 0.9, None),
-                            align=self.align
-                        )
+                        caption_config = config.copy()
+                        caption_config['method'] = 'caption'
+                        txt_clip = TextClip(text, **caption_config)
                     except Exception as e2:
                         # 如果都失败了，跳过这个字幕
                         self.logger.error(f"字幕创建完全失败，跳过: {text[:30]}... (label: {e}, caption: {e2})")

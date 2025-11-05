@@ -172,6 +172,11 @@ subtitle:
   align: center
   duration_per_char: 0.3
   enabled: true
+  adaptive_font_size: false # 若要完全固定，改為 false
+  uniform_font_size: true  # 關鍵：全片統一字級
+  enable_density_limit: true
+  max_text_height_ratio: 0.12
+  max_text_width_ratio: 0.90
   font_color: white
   font_fallback:
   - 'assets/fonts/NotoSansCJKsc-Regular.otf  # Noto Sans CJK SC (项目预置)'
@@ -184,18 +189,17 @@ subtitle:
   - WenQuanYi Micro Hei
   - Droid Sans Fallback
   - Arial Unicode MS
-  font_name: STHeiti Medium
+  font_name: PingFang SC
   font_path: null
   font_size: 48
-  adaptive_font_size: true  # 是否启用自适应字体大小
-  min_font_size: 24         # 最小字体大小
-  max_font_size: 72         # 最大字体大小
+  min_font_size: 48         # 最小字体大小
+  max_font_size: 48         # 最大字体大小
   font_size_scale_factor: 0.02  # 相对于视频宽度的缩放因子
   margin_bottom: 100
   max_chars_per_line: 25
   min_confidence_threshold: 0.3
   position: bottom
-  stroke_color: black
+  stroke_color: white
   stroke_width: 2
   stt_min_segment_length: 0.5
   stt_segment_merge_threshold: 1.5
