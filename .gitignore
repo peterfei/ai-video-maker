@@ -64,3 +64,4 @@ task_queue.json
 AGENTS.md
 .claude/
 CLAUDE.md
+.playwright-mcp/

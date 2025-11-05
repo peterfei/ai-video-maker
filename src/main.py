@@ -13,6 +13,7 @@ import uuid
 from config_loader import get_config
 from utils import setup_logger, generate_filename, ensure_dir
 from content_sources import TextSource, MaterialSource, AutoMaterialManager
+from content_sources.material_source import Material
 from content_sources.text_source import ScriptSegment
 from audio import TTSEngine, AudioMixer, STTEngine, MusicLibrary
 from subtitle import SubtitleGenerator, SubtitleRenderer, STTSubtitleGenerator
@@ -188,12 +189,18 @@ class VideoFactory:
                         sentence_script_segments.append(temp_seg)
 
                     material_paths = self.auto_material_manager.get_materials_for_script(
-                        sentence_script_segments,
-                        materials_per_segment=1
+                    sentence_script_segments,
+                    materials_per_segment=1
                     )
-                    additional_materials = [{'path': p} for p in material_paths] if material_paths else []
-                    materials.extend(additional_materials)
-                    self.logger.info(f"自动获取了 {len(additional_materials)} 个素材，总计 {len(materials)} 个")
+                    # 将路径转换为 Material 对象，确保类型一致性
+                    for path in material_paths:
+                        material = Material(
+                            path=path,
+                            material_type='image',  # 自动下载的都是图片
+                            tags=[]
+                        )
+                        materials.append(material)
+                    self.logger.info(f"自动获取了 {len(material_paths)} 个素材，总计 {len(materials)} 个")
                 else:
                     # 记录前几个素材路径用于调试
                     for i, material in enumerate(materials[:3]):
@@ -213,10 +220,18 @@ class VideoFactory:
                     sentence_script_segments.append(temp_seg)
 
                 material_paths = self.auto_material_manager.get_materials_for_script(
-                    sentence_script_segments,
-                    materials_per_segment=1
+                sentence_script_segments,
+                materials_per_segment=1
                 )
-                materials = [{'path': p} for p in material_paths] if material_paths else []
+                # 将路径转换为 Material 对象，确保类型一致性
+                materials = []
+                for path in material_paths:
+                    material = Material(
+                        path=path,
+                        material_type='image',  # 自动下载的都是图片
+                        tags=[]
+                    )
+                    materials.append(material)
                 self.logger.info(f"自动获取了 {len(materials)} 个素材（每个句子1个）")
 
             if len(materials) == 0:
@@ -661,15 +676,25 @@ class VideoFactory:
             self.logger.info("步骤 7/8: 创建视频")
 
             if materials:
-                # 处理素材路径
-                if isinstance(materials[0], dict) and 'path' in materials[0]:
-                    image_paths = [m['path'] for m in materials]
-                else:
-                    selected_materials = self.material_source.select_materials(
-                        count=max(5, len(script_segments)),
-                        material_type='image'
-                    )
-                    image_paths = [m.path for m in selected_materials] if selected_materials else []
+                # 标准化素材列表，确保所有项都是 Material 对象
+                standardized_materials = []
+                for m in materials:
+                    if isinstance(m, dict) and 'path' in m:
+                        # 将字典转换为 Material 对象
+                        material = Material(
+                            path=m['path'],
+                            material_type='image',
+                            tags=[]
+                        )
+                        standardized_materials.append(material)
+                    elif isinstance(m, Material):
+                        # 已经是 Material 对象，直接使用
+                        standardized_materials.append(m)
+                    else:
+                        self.logger.warning(f"未知的素材类型: {type(m)}, 跳过")
+
+                # 现在所有素材都是 Material 对象，可以安全使用
+                image_paths = [m.path for m in standardized_materials]
 
                 if image_paths:
                     # 使用GPU加速的幻灯片制作（如果可用）
